@@ -27,32 +27,6 @@ This module connects Odoo Sales and Products with your Walaa app.
    - Search for `Walaa Connector`.
    - Click `Install`.
 
-### How to copy `walaa_connector` into addons path
-
-1. Find your Odoo `addons_path`:
-
-```bash
-grep -E '^addons_path' /etc/odoo/odoo.conf
-```
-
-2. Copy module folder to one of the listed addons directories (example target: `/opt/odoo/custom/addons`):
-
-```bash
-cp -R /Users/mr.dhawi/Desktop/owalaa/walaa_connector /opt/odoo/custom/addons/
-```
-
-3. If Odoo runs as user `odoo`, fix ownership:
-
-```bash
-sudo chown -R odoo:odoo /opt/odoo/custom/addons/walaa_connector
-```
-
-4. Restart Odoo:
-
-```bash
-sudo systemctl restart odoo
-```
-
 ### Optional CLI install
 
 ```bash
@@ -67,8 +41,9 @@ odoo-bin -d <database_name> -i walaa_connector --addons-path=<your_addons_paths>
 odoo-bin -d <database_name> -u walaa_connector --addons-path=<your_addons_paths>
 ```
 
-2. In Odoo, go to `Settings` -> `Technical` -> `Scheduled Actions`.
-3. Search for `Walaa Connector: Process Queue` and disable it if it still exists.
+2. (Optional cleanup) If your old deployment still has `data/ir_cron_data.xml`, remove it from the module folder.
+3. In Odoo, go to `Settings` -> `Technical` -> `Scheduled Actions`.
+4. Search for `Walaa Connector: Process Queue` and disable it if it still exists.
 
 ## Configuration
 
@@ -147,7 +122,7 @@ If brand token is missing:
 
 Go to:
 
-- `Sales` -> `Configuration` -> `Walaa Connector` -> `Integration Logs`
+- `Walaa Connector` -> `Integration Logs`
 
 You can:
 
@@ -194,6 +169,11 @@ Possible responses from `POST /walaa/sync/products`:
 
 5. **Product trigger returns 404 unknown token**
    - Verify `brand_token` exists in company `Walaa Brand Token`.
+
+6. **Install/upgrade still fails after code fix**
+   - Restart Odoo service.
+   - Update Apps List from Odoo Apps menu.
+   - Upgrade module again: `odoo-bin -d <database_name> -u walaa_connector --addons-path=<your_addons_paths>`.
 
 ## Security Recommendations
 
