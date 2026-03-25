@@ -6,8 +6,8 @@ This module connects Odoo Sales and Products with your Walaa app.
 
 - Stores Walaa configuration per Odoo company.
 - Receives product sync triggers from Walaa (`POST /walaa/sync/products`).
-- Queues and sends confirmed sales orders to Walaa.
-- Retries failed requests automatically with exponential backoff.
+- Sends confirmed sales orders to Walaa immediately.
+- Sends product sync requests to Walaa immediately when trigger is received.
 - Provides integration logs and manual resend actions.
 
 ## Requirements
@@ -59,6 +59,17 @@ sudo systemctl restart odoo
 odoo-bin -d <database_name> -i walaa_connector --addons-path=<your_addons_paths>
 ```
 
+### If upgrading from an older version
+
+1. Upgrade module:
+
+```bash
+odoo-bin -d <database_name> -u walaa_connector --addons-path=<your_addons_paths>
+```
+
+2. In Odoo, go to `Settings` -> `Technical` -> `Scheduled Actions`.
+3. Search for `Walaa Connector: Process Queue` and disable it if it still exists.
+
 ## Configuration
 
 1. Go to `Settings` -> `General Settings`.
@@ -95,17 +106,17 @@ Success response:
 
 ```json
 {
-  "status": "accepted",
+  "status": "sent",
   "job_id": 123
 }
 ```
 
-HTTP status on success: `202`.
+HTTP status on success: `200`.
 
-What happens after accept:
+What happens after request:
 
-- Odoo creates a queue job.
-- Cron processes the job.
+- Odoo creates an integration log job.
+- Odoo processes it immediately in the same request.
 - Odoo exports all active saleable products for that company in batches of 200.
 - Odoo sends product batches to Walaa product endpoint.
 
@@ -113,8 +124,8 @@ What happens after accept:
 
 When a Sales Order is confirmed:
 
-- Odoo creates an `order_push` queue job.
-- Job sends order payload to Walaa order endpoint.
+- Odoo creates an `order_push` integration job record.
+- Job is processed immediately and sends order payload to Walaa order endpoint.
 - Headers include:
   - `Content-Type: application/json`
   - `X-Brand-Token: <company_brand_token>`
@@ -125,19 +136,12 @@ If brand token is missing:
 - Order confirmation is not blocked.
 - Job is stored as `failed` with error message.
 
-## Queue and Retry Behavior
+## Delivery Behavior
 
-Cron job runs every 1 minute.
-
-Retry schedule for failed outbound requests:
-
-1. +1 minute
-2. +5 minutes
-3. +15 minutes
-4. +60 minutes
-5. +180 minutes
-
-After 5th failed attempt, job state becomes `failed` permanently (until manual resend).
+- No cron is used for sending requests.
+- Product and order sends are synchronous (direct).
+- On failure, job state is `failed`.
+- Use `Resend` to retry manually.
 
 ## Monitoring and Operations
 
@@ -161,7 +165,8 @@ Possible responses from `POST /walaa/sync/products`:
 - `404` unknown `brand_token` (no matching company).
 - `401` invalid or missing `X-Walaa-API-Key`.
 - `403` connector disabled for company.
-- `202` accepted and queued.
+- `200` sent successfully.
+- `502` send failed (check integration log for details).
 
 ## Multi-company Notes
 
@@ -176,8 +181,8 @@ Possible responses from `POST /walaa/sync/products`:
    - Ensure order actually reached `sale` or `done` state.
 
 2. **Jobs stuck in queued**
-   - Check scheduled action `Walaa Connector: Process Queue` is active.
-   - Check Odoo cron worker is running.
+   - This should not happen in direct-send mode.
+   - Open the job and click `Resend`.
 
 3. **Jobs failing with HTTP errors**
    - Verify `Walaa Base URL` and endpoint paths.

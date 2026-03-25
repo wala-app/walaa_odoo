@@ -6,6 +6,12 @@ import requests
 from odoo.tests.common import SavepointCase
 
 
+class FakeResponse:
+    def __init__(self, status_code=200, text="ok"):
+        self.status_code = status_code
+        self.text = text
+
+
 class TestWalaaConnector(SavepointCase):
     @classmethod
     def setUpClass(cls):
@@ -64,10 +70,14 @@ class TestWalaaConnector(SavepointCase):
             }
         )
 
-    def test_order_confirm_enqueues_order_job(self):
+    def test_order_confirm_sends_order_immediately(self):
         order = self._create_sale_order()
 
-        order.action_confirm()
+        with patch(
+            "odoo.addons.walaa_connector.models.walaa_integration_job.requests.post",
+            return_value=FakeResponse(200, "ok"),
+        ):
+            order.action_confirm()
 
         job = self.job_model.search(
             [
@@ -77,7 +87,7 @@ class TestWalaaConnector(SavepointCase):
             limit=1,
         )
         self.assertTrue(job)
-        self.assertEqual(job.state, "queued")
+        self.assertEqual(job.state, "sent")
         self.assertTrue(job.idempotency_key)
 
         payload = json.loads(job.payload_json)
@@ -122,7 +132,7 @@ class TestWalaaConnector(SavepointCase):
         self.assertEqual(job.state, "failed")
         self.assertIn("Brand Token", job.last_error)
 
-    def test_retry_backoff_reaches_failed_state_after_five_attempts(self):
+    def test_failed_send_marks_job_failed_directly(self):
         job = self.job_model.create(
             {
                 "job_type": "order_push",
@@ -137,27 +147,26 @@ class TestWalaaConnector(SavepointCase):
             "odoo.addons.walaa_connector.models.walaa_integration_job.requests.post",
             side_effect=requests.RequestException("network error"),
         ):
-            for attempt in range(1, 6):
-                job._process_job()
-                job.invalidate_cache()
-                self.assertEqual(job.attempt_count, attempt)
-                if attempt < 5:
-                    self.assertEqual(job.state, "queued")
-                    self.assertTrue(job.next_retry_at)
-                else:
-                    self.assertEqual(job.state, "failed")
-                    self.assertFalse(job.next_retry_at)
+            job._process_job()
+            job.invalidate_cache()
+            self.assertEqual(job.attempt_count, 1)
+            self.assertEqual(job.state, "failed")
+            self.assertFalse(job.next_retry_at)
 
-    def test_enqueue_product_sync_job(self):
-        job = self.job_model.enqueue_product_sync(
-            self.company,
-            trigger_payload={"brand_token": "brand-main"},
-        )
+    def test_product_sync_sends_immediately(self):
+        with patch(
+            "odoo.addons.walaa_connector.models.walaa_integration_job.requests.post",
+            return_value=FakeResponse(200, "ok"),
+        ):
+            job = self.job_model.create_and_send_product_sync(
+                self.company,
+                trigger_payload={"brand_token": "brand-main"},
+            )
         self.assertEqual(job.job_type, "product_sync")
-        self.assertEqual(job.state, "queued")
+        self.assertEqual(job.state, "sent")
         self.assertEqual(job.company_id.id, self.company.id)
 
-    def test_resend_resets_failed_job(self):
+    def test_resend_sends_failed_job_immediately(self):
         job = self.job_model.create(
             {
                 "job_type": "order_push",
@@ -170,9 +179,13 @@ class TestWalaaConnector(SavepointCase):
             }
         )
 
-        job.action_resend()
+        with patch(
+            "odoo.addons.walaa_connector.models.walaa_integration_job.requests.post",
+            return_value=FakeResponse(200, "ok"),
+        ):
+            job.action_resend()
         job.invalidate_cache()
 
-        self.assertEqual(job.state, "queued")
-        self.assertEqual(job.attempt_count, 0)
+        self.assertEqual(job.state, "sent")
+        self.assertEqual(job.attempt_count, 1)
         self.assertFalse(job.last_error)

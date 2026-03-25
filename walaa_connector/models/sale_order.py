@@ -23,7 +23,7 @@ class SaleOrder(models.Model):
             )
             if existing_job:
                 continue
-            job_model.enqueue_order_push(order)
+            job_model.create_and_send_order_push(order)
 
         return result
 

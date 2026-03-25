@@ -93,7 +93,7 @@
         <field name="context">{'search_default_filter_failed': 0}</field>
     </record>
 
-    <menuitem id="menu_walaa_connector_root" name="Walaa Connector" parent="sale.sale_menu_config" sequence="96"/>
+    <menuitem id="menu_walaa_connector_root" name="Walaa Connector" sequence="96"/>
     <menuitem
         id="menu_walaa_integration_jobs"
         name="Integration Logs"

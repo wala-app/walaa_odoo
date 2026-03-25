@@ -75,9 +75,19 @@ class WalaaConnectorController(http.Controller):
         job = (
             request.env["walaa.integration.job"]
             .sudo()
-            .enqueue_product_sync(company, trigger_payload=payload)
+            .create_and_send_product_sync(company, trigger_payload=payload)
         )
+        if job.state == "sent":
+            return request.make_json_response(
+                {"status": "sent", "job_id": job.id},
+                status=200,
+            )
+
         return request.make_json_response(
-            {"status": "accepted", "job_id": job.id},
-            status=202,
+            {
+                "status": "failed",
+                "job_id": job.id,
+                "error": job.last_error,
+            },
+            status=502,
         )

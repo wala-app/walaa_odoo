@@ -1,6 +1,5 @@
 import json
 import logging
-from datetime import timedelta
 
 import requests
 
@@ -22,7 +21,6 @@ class WalaaIntegrationJob(models.Model):
     _description = "Walaa Integration Job"
     _order = "create_date desc, id desc"
 
-    _RETRY_BACKOFF_MINUTES = [1, 5, 15, 60, 180]
     _REQUEST_TIMEOUT_SECONDS = 15
     _PRODUCT_BATCH_SIZE = 200
 
@@ -101,16 +99,27 @@ class WalaaIntegrationJob(models.Model):
         return self.sudo().create(values)
 
     @api.model
+    def create_and_send_order_push(self, order):
+        job = self.enqueue_order_push(order)
+        if job.state == "queued":
+            job._process_job()
+        return job
+
+    @api.model
+    def create_and_send_product_sync(self, company, trigger_payload=None):
+        job = self.enqueue_product_sync(company, trigger_payload=trigger_payload)
+        if job.state == "queued":
+            job._process_job()
+        return job
+
+    @api.model
     def cron_process_queue(self, limit=100):
-        due_jobs = self.sudo().search(
-            [
-                ("state", "=", "queued"),
-                ("next_retry_at", "<=", fields.Datetime.now()),
-            ],
-            order="next_retry_at asc, id asc",
-            limit=limit,
-        )
-        for job in due_jobs:
+        """
+        Backward compatibility for databases that still have the old cron record.
+        In direct-send mode this only processes any leftover queued jobs.
+        """
+        jobs = self.sudo().search([("state", "=", "queued")], limit=limit, order="id asc")
+        for job in jobs:
             with self.env.cr.savepoint():
                 job._process_job()
         return True
@@ -129,6 +138,8 @@ class WalaaIntegrationJob(models.Model):
                 "response_body": False,
             }
         )
+        for job in failed_jobs:
+            job._process_job()
         return True
 
     def _process_job(self):
@@ -172,28 +183,13 @@ class WalaaIntegrationJob(models.Model):
 
     def _queue_or_fail(self, error_message, response_status=False, response_body=False):
         self.ensure_one()
-
-        if self.attempt_count >= len(self._RETRY_BACKOFF_MINUTES):
-            self.write(
-                {
-                    "state": "failed",
-                    "last_error": error_message,
-                    "response_status": response_status,
-                    "response_body": self._truncate(response_body),
-                    "next_retry_at": False,
-                }
-            )
-            return
-
-        delay_minutes = self._RETRY_BACKOFF_MINUTES[self.attempt_count - 1]
-        next_retry = fields.Datetime.now() + timedelta(minutes=delay_minutes)
         self.write(
             {
-                "state": "queued",
+                "state": "failed",
                 "last_error": error_message,
                 "response_status": response_status,
                 "response_body": self._truncate(response_body),
-                "next_retry_at": next_retry,
+                "next_retry_at": False,
             }
         )
 
