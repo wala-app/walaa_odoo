@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_res_config_settings_inherit_walaa_connector" model="ir.ui.view">
+        <field name="name">res.config.settings.walaa.connector</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//div[hasclass('settings')]" position="inside">
+                <div class="app_settings_block" data-string="Walaa Connector" data-key="walaa_connector" string="Walaa Connector">
+                    <h2>Walaa Connector</h2>
+                    <div class="row mt16 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_left_pane"/>
+                            <div class="o_setting_right_pane">
+                                <label for="walaa_enabled"/>
+                                <div class="text-muted">Enable per-company sync with Walaa.</div>
+                                <div class="mt8">
+                                    <field name="walaa_enabled"/>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_left_pane"/>
+                            <div class="o_setting_right_pane">
+                                <label for="walaa_brand_token"/>
+                                <div class="text-muted">Brand identity sent to Walaa in `X-Brand-Token`.</div>
+                                <div class="mt8">
+                                    <field name="walaa_brand_token" password="True"/>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_left_pane"/>
+                            <div class="o_setting_right_pane">
+                                <label for="walaa_inbound_api_key"/>
+                                <div class="text-muted">Static key used by Walaa to authenticate trigger calls.</div>
+                                <div class="mt8">
+                                    <field name="walaa_inbound_api_key" password="True"/>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_left_pane"/>
+                            <div class="o_setting_right_pane">
+                                <label for="walaa_base_url"/>
+                                <div class="text-muted">Base URL for Walaa APIs.</div>
+                                <div class="mt8">
+                                    <field name="walaa_base_url" placeholder="https://api.walaa.example"/>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_left_pane"/>
+                            <div class="o_setting_right_pane">
+                                <label for="walaa_product_sync_path"/>
+                                <div class="text-muted">Relative endpoint path for product sync.</div>
+                                <div class="mt8">
+                                    <field name="walaa_product_sync_path"/>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_left_pane"/>
+                            <div class="o_setting_right_pane">
+                                <label for="walaa_order_path"/>
+                                <div class="text-muted">Relative endpoint path for confirmed order push.</div>
+                                <div class="mt8">
+                                    <field name="walaa_order_path"/>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt16">
+                        <button
+                            name="action_test_walaa_connection"
+                            type="object"
+                            string="Test Walaa Connection"
+                            class="btn btn-primary"
+                        />
+                    </div>
+                </div>
+            </xpath>
+        </field>
+    </record>
+</odoo>

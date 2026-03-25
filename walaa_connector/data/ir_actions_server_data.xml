@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_walaa_resend_failed_jobs" model="ir.actions.server">
+        <field name="name">Resend to Walaa</field>
+        <field name="model_id" ref="model_walaa_integration_job"/>
+        <field name="binding_model_id" ref="model_walaa_integration_job"/>
+        <field name="binding_view_types">list,form</field>
+        <field name="state">code</field>
+        <field name="code">if records:
+    records.action_resend()</field>
+    </record>
+</odoo>
