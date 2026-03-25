@@ -14,14 +14,8 @@
                         <setting id="walaa_brand_token_setting" string="Walaa Brand Token" help="Brand identity sent to Walaa in X-Brand-Token.">
                             <field name="walaa_brand_token" password="True"/>
                         </setting>
-                        <setting id="walaa_inbound_api_key_setting" string="Walaa Inbound API Key" help="Static key used by Walaa to authenticate trigger calls.">
-                            <field name="walaa_inbound_api_key" password="True"/>
-                        </setting>
                         <setting id="walaa_base_url_setting" string="Walaa Base URL" help="Base URL for Walaa APIs.">
                             <field name="walaa_base_url" placeholder="https://api.walaa.example"/>
-                        </setting>
-                        <setting id="walaa_product_sync_path_setting" string="Walaa Product Sync Path" help="Relative endpoint path for product sync.">
-                            <field name="walaa_product_sync_path"/>
                         </setting>
                         <setting id="walaa_order_path_setting" string="Walaa Order Path" help="Relative endpoint path for confirmed order push.">
                             <field name="walaa_order_path"/>

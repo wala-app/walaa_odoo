@@ -7,10 +7,7 @@
     "license": "LGPL-3",
     "depends": ["base", "product", "sale"],
     "data": [
-        "security/ir.model.access.csv",
-        "data/ir_actions_server_data.xml",
-        "views/res_config_settings_views.xml",
-        "views/walaa_integration_job_views.xml"
+        "views/res_config_settings_views.xml"
     ],
     "installable": True,
     "application": False,

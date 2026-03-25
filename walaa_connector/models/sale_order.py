@@ -1,6 +1,11 @@
+import logging
 import uuid
 
+import requests
+
 from odoo import fields, models
+
+_logger = logging.getLogger(__name__)
 
 
 class SaleOrder(models.Model):
@@ -8,24 +13,49 @@ class SaleOrder(models.Model):
 
     def action_confirm(self):
         result = super().action_confirm()
-        job_model = self.env["walaa.integration.job"].sudo()
-
         for order in self:
             if order.state not in ("sale", "done"):
                 continue
-            existing_job = job_model.search(
-                [
-                    ("sale_order_id", "=", order.id),
-                    ("job_type", "=", "order_push"),
-                    ("state", "in", ("queued", "processing", "sent")),
-                ],
-                limit=1,
-            )
-            if existing_job:
-                continue
-            job_model.create_and_send_order_push(order)
+            order._walaa_send_order_payload_direct()
 
         return result
+
+    def _walaa_send_order_payload_direct(self):
+        self.ensure_one()
+        company = self.company_id
+        if not company.walaa_enabled:
+            return False
+        if not company.walaa_brand_token:
+            _logger.warning(
+                "Skipping Walaa order push for order %s because brand token is missing.",
+                self.name,
+            )
+            return False
+
+        try:
+            company._walaa_validate_outbound_config(require_brand_token=True)
+            endpoint = company._walaa_compose_url(company.walaa_order_path)
+            headers = company._walaa_outbound_headers(
+                idempotency_key=self._walaa_order_event_idempotency_key()
+            )
+            response = requests.post(
+                endpoint,
+                json=self._walaa_build_order_payload(),
+                headers=headers,
+                timeout=15,
+            )
+            if not (200 <= response.status_code < 300):
+                _logger.warning(
+                    "Walaa order push failed for order %s with HTTP %s: %s",
+                    self.name,
+                    response.status_code,
+                    (response.text or "")[:1000],
+                )
+                return False
+            return True
+        except Exception:
+            _logger.exception("Walaa order push failed for order %s", self.name)
+            return False
 
     def _walaa_build_order_payload(self):
         self.ensure_one()

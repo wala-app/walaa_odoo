@@ -10,13 +10,7 @@ class ResConfigSettings(models.TransientModel):
     walaa_enabled = fields.Boolean(related="company_id.walaa_enabled", readonly=False)
     walaa_brand_token = fields.Char(related="company_id.walaa_brand_token", readonly=False)
     walaa_base_url = fields.Char(related="company_id.walaa_base_url", readonly=False)
-    walaa_product_sync_path = fields.Char(
-        related="company_id.walaa_product_sync_path", readonly=False
-    )
     walaa_order_path = fields.Char(related="company_id.walaa_order_path", readonly=False)
-    walaa_inbound_api_key = fields.Char(
-        related="company_id.walaa_inbound_api_key", readonly=False
-    )
 
     def action_test_walaa_connection(self):
         self.ensure_one()

@@ -1,8 +1,6 @@
-import json
 from unittest.mock import patch
 
-import requests
-
+from odoo.exceptions import ValidationError
 from odoo.tests.common import SavepointCase
 
 
@@ -37,15 +35,12 @@ class TestWalaaConnector(SavepointCase):
 
     def setUp(self):
         super().setUp()
-        self.job_model = self.env["walaa.integration.job"].sudo()
         self.company.write(
             {
                 "walaa_enabled": True,
                 "walaa_brand_token": "brand-main",
                 "walaa_base_url": "https://walaa.example",
-                "walaa_product_sync_path": "/api/products/sync",
                 "walaa_order_path": "/api/orders",
-                "walaa_inbound_api_key": "inbound-secret",
             }
         )
 
@@ -74,23 +69,12 @@ class TestWalaaConnector(SavepointCase):
         order = self._create_sale_order()
 
         with patch(
-            "odoo.addons.walaa_connector.models.walaa_integration_job.requests.post",
+            "odoo.addons.walaa_connector.models.sale_order.requests.post",
             return_value=FakeResponse(200, "ok"),
-        ):
+        ) as post_mock:
             order.action_confirm()
-
-        job = self.job_model.search(
-            [
-                ("sale_order_id", "=", order.id),
-                ("job_type", "=", "order_push"),
-            ],
-            limit=1,
-        )
-        self.assertTrue(job)
-        self.assertEqual(job.state, "sent")
-        self.assertTrue(job.idempotency_key)
-
-        payload = json.loads(job.payload_json)
+        self.assertEqual(post_mock.call_count, 1)
+        payload = post_mock.call_args.kwargs["json"]
         self.assertEqual(payload["order"]["customer"]["email"], "customer@example.com")
         self.assertEqual(payload["order"]["customer"]["phone"], "+96890000000")
 
@@ -101,9 +85,7 @@ class TestWalaaConnector(SavepointCase):
                 "walaa_enabled": True,
                 "walaa_brand_token": "brand-updated-from-settings",
                 "walaa_base_url": "https://new-walaa.example",
-                "walaa_product_sync_path": "/products/v2/sync",
                 "walaa_order_path": "/orders/v2",
-                "walaa_inbound_api_key": "new-key",
             }
         )
         settings.write({"walaa_enabled": True})
@@ -111,81 +93,32 @@ class TestWalaaConnector(SavepointCase):
         self.company.invalidate_cache()
         self.assertEqual(self.company.walaa_brand_token, "brand-updated-from-settings")
         self.assertEqual(self.company.walaa_base_url, "https://new-walaa.example")
-        self.assertEqual(self.company.walaa_product_sync_path, "/products/v2/sync")
         self.assertEqual(self.company.walaa_order_path, "/orders/v2")
-        self.assertEqual(self.company.walaa_inbound_api_key, "new-key")
 
-    def test_missing_brand_token_creates_failed_job(self):
+    def test_missing_brand_token_skips_order_send(self):
         self.company.walaa_brand_token = False
         order = self._create_sale_order()
 
-        order.action_confirm()
-
-        job = self.job_model.search(
-            [
-                ("sale_order_id", "=", order.id),
-                ("job_type", "=", "order_push"),
-            ],
-            limit=1,
-        )
-        self.assertTrue(job)
-        self.assertEqual(job.state, "failed")
-        self.assertIn("Brand Token", job.last_error)
-
-    def test_failed_send_marks_job_failed_directly(self):
-        job = self.job_model.create(
-            {
-                "job_type": "order_push",
-                "company_id": self.company.id,
-                "payload_json": json.dumps({"event": "order_confirmed", "order": {"id": 10}}),
-                "idempotency_key": "order-10-confirm-test",
-                "state": "queued",
-            }
-        )
-
         with patch(
-            "odoo.addons.walaa_connector.models.walaa_integration_job.requests.post",
-            side_effect=requests.RequestException("network error"),
-        ):
-            job._process_job()
-            job.invalidate_cache()
-            self.assertEqual(job.attempt_count, 1)
-            self.assertEqual(job.state, "failed")
-            self.assertFalse(job.next_retry_at)
-
-    def test_product_sync_sends_immediately(self):
-        with patch(
-            "odoo.addons.walaa_connector.models.walaa_integration_job.requests.post",
+            "odoo.addons.walaa_connector.models.sale_order.requests.post",
             return_value=FakeResponse(200, "ok"),
-        ):
-            job = self.job_model.create_and_send_product_sync(
-                self.company,
+        ) as post_mock:
+            order.action_confirm()
+        self.assertEqual(post_mock.call_count, 0)
+
+    def test_product_sync_response_builder(self):
+        response_payload = self.company._walaa_build_product_sync_response(
+            trigger_payload={"brand_token": "brand-main"}, limit=50, offset=0
+        )
+        self.assertIn("products", response_payload)
+        self.assertIn("pagination", response_payload)
+        self.assertLessEqual(response_payload["pagination"]["count"], 50)
+        self.assertEqual(response_payload["sync_mode"], "pull")
+
+    def test_product_sync_response_builder_rejects_invalid_limit(self):
+        with self.assertRaises(ValidationError):
+            self.company._walaa_build_product_sync_response(
                 trigger_payload={"brand_token": "brand-main"},
+                limit=0,
+                offset=0,
             )
-        self.assertEqual(job.job_type, "product_sync")
-        self.assertEqual(job.state, "sent")
-        self.assertEqual(job.company_id.id, self.company.id)
-
-    def test_resend_sends_failed_job_immediately(self):
-        job = self.job_model.create(
-            {
-                "job_type": "order_push",
-                "company_id": self.company.id,
-                "payload_json": json.dumps({"event": "order_confirmed", "order": {"id": 11}}),
-                "idempotency_key": "order-11-confirm-test",
-                "state": "failed",
-                "attempt_count": 5,
-                "last_error": "boom",
-            }
-        )
-
-        with patch(
-            "odoo.addons.walaa_connector.models.walaa_integration_job.requests.post",
-            return_value=FakeResponse(200, "ok"),
-        ):
-            job.action_resend()
-        job.invalidate_cache()
-
-        self.assertEqual(job.state, "sent")
-        self.assertEqual(job.attempt_count, 1)
-        self.assertFalse(job.last_error)

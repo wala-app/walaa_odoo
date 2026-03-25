@@ -6,9 +6,8 @@ This module connects Odoo Sales and Products with your Walaa app.
 
 - Stores Walaa configuration per Odoo company.
 - Receives product sync triggers from Walaa (`POST /walaa/sync/products`).
+- Returns products directly in the Odoo response (pull mode).
 - Sends confirmed sales orders to Walaa immediately.
-- Sends product sync requests to Walaa immediately when trigger is received.
-- Provides integration logs and manual resend actions.
 
 ## Requirements
 
@@ -41,10 +40,6 @@ odoo-bin -d <database_name> -i walaa_connector --addons-path=<your_addons_paths>
 odoo-bin -d <database_name> -u walaa_connector --addons-path=<your_addons_paths>
 ```
 
-2. (Optional cleanup) If your old deployment still has `data/ir_cron_data.xml`, remove it from the module folder.
-3. In Odoo, go to `Settings` -> `Technical` -> `Scheduled Actions`.
-4. Search for `Walaa Connector: Process Queue` and disable it if it still exists.
-
 ## Configuration
 
 1. Go to `Settings` -> `General Settings`.
@@ -53,27 +48,27 @@ odoo-bin -d <database_name> -u walaa_connector --addons-path=<your_addons_paths>
 4. Fill fields:
    - `Enable Walaa Connector`: enable integration for this company.
    - `Walaa Brand Token`: unique brand token for this company.
-   - `Walaa Inbound API Key`: static key used by Walaa when calling Odoo trigger endpoint.
    - `Walaa Base URL`: base URL of Walaa API, example `https://api.walaa.example`.
-   - `Walaa Product Sync Path`: product endpoint path, example `/api/odoo/products/sync`.
    - `Walaa Order Path`: order endpoint path, example `/api/odoo/orders`.
 5. Click `Save`.
 6. Click `Test Walaa Connection`.
 
 ## Usage
 
-### 1) Product sync (Walaa -> Odoo trigger -> Walaa)
+### 1) Product sync (Walaa -> Odoo response)
 
 Walaa calls Odoo:
 
 - Method: `POST`
 - URL: `https://<your-odoo-domain>/walaa/sync/products`
-- Header: `X-Walaa-API-Key: <company_inbound_api_key>`
+- Authentication: token-only (`brand_token` in JSON body)
 - Body:
 
 ```json
 {
-  "brand_token": "your_brand_token"
+  "brand_token": "your_brand_token",
+  "limit": 200,
+  "offset": 0
 }
 ```
 
@@ -81,8 +76,24 @@ Success response:
 
 ```json
 {
+  "event": "product_sync",
+  "sync_mode": "pull",
   "status": "sent",
-  "job_id": 123
+  "pagination": {
+    "limit": 200,
+    "offset": 0,
+    "count": 200,
+    "total": 540,
+    "has_more": true,
+    "next_offset": 200
+  },
+  "products": [
+    {
+      "id": 10,
+      "sku": "SKU-10",
+      "name": "Example Product"
+    }
+  ]
 }
 ```
 
@@ -90,17 +101,15 @@ HTTP status on success: `200`.
 
 What happens after request:
 
-- Odoo creates an integration log job.
 - Odoo processes it immediately in the same request.
-- Odoo exports all active saleable products for that company in batches of 200.
-- Odoo sends product batches to Walaa product endpoint.
+- Odoo returns active saleable products for that company.
+- Use `limit`/`offset` to page through the full catalog.
 
 ### 2) Order sync (Odoo -> Walaa)
 
 When a Sales Order is confirmed:
 
-- Odoo creates an `order_push` integration job record.
-- Job is processed immediately and sends order payload to Walaa order endpoint.
+- Odoo immediately sends order payload to Walaa order endpoint.
 - Headers include:
   - `Content-Type: application/json`
   - `X-Brand-Token: <company_brand_token>`
@@ -109,27 +118,14 @@ When a Sales Order is confirmed:
 If brand token is missing:
 
 - Order confirmation is not blocked.
-- Job is stored as `failed` with error message.
+- Order push is skipped.
 
 ## Delivery Behavior
 
 - No cron is used for sending requests.
-- Product and order sends are synchronous (direct).
-- On failure, job state is `failed`.
-- Use `Resend` to retry manually.
-
-## Monitoring and Operations
-
-Go to:
-
-- `Walaa Connector` -> `Integration Logs`
-
-You can:
-
-- Filter by `Queued`, `Processing`, `Sent`, `Failed`.
-- Open each log to inspect payload, response, and error.
-- Click `Resend` on failed jobs.
-- Use list action `Resend to Walaa` for selected failed rows.
+- Product sync is pull-response from Odoo.
+- Order push is synchronous (direct) from Odoo to Walaa.
+- On failure, Odoo writes warning/error logs in server logs (does not block order confirmation).
 
 ## API Error Reference (Product Trigger)
 
@@ -137,11 +133,11 @@ Possible responses from `POST /walaa/sync/products`:
 
 - `400` invalid JSON body.
 - `400` missing `brand_token`.
+- `400` invalid pagination (`limit`/`offset`).
 - `404` unknown `brand_token` (no matching company).
-- `401` invalid or missing `X-Walaa-API-Key`.
 - `403` connector disabled for company.
 - `200` sent successfully.
-- `502` send failed (check integration log for details).
+- `500` internal error.
 
 ## Multi-company Notes
 
@@ -151,26 +147,19 @@ Possible responses from `POST /walaa/sync/products`:
 
 ## Troubleshooting
 
-1. **No jobs created on order confirmation**
+1. **Order not sent on confirmation**
    - Ensure company has Walaa connector enabled.
    - Ensure order actually reached `sale` or `done` state.
 
-2. **Jobs stuck in queued**
-   - This should not happen in direct-send mode.
-   - Open the job and click `Resend`.
-
-3. **Jobs failing with HTTP errors**
+2. **Order push failing with HTTP errors**
    - Verify `Walaa Base URL` and endpoint paths.
    - Verify Walaa server can accept Odoo IP / traffic.
-   - Inspect response body in Integration Log.
+   - Inspect Odoo server logs.
 
-4. **Product trigger returns 401**
-   - Verify header `X-Walaa-API-Key` exactly matches company setting.
-
-5. **Product trigger returns 404 unknown token**
+3. **Product trigger returns 404 unknown token**
    - Verify `brand_token` exists in company `Walaa Brand Token`.
 
-6. **Install/upgrade still fails after code fix**
+4. **Install/upgrade still fails after code fix**
    - Restart Odoo service.
    - Update Apps List from Odoo Apps menu.
    - Upgrade module again: `odoo-bin -d <database_name> -u walaa_connector --addons-path=<your_addons_paths>`.
@@ -178,9 +167,8 @@ Possible responses from `POST /walaa/sync/products`:
 ## Security Recommendations
 
 - Use HTTPS for both Odoo and Walaa endpoints.
-- Rotate `Walaa Inbound API Key` periodically.
+- Rotate `Walaa Brand Token` periodically.
 - Restrict public endpoint access at reverse proxy/WAF level where possible.
-- Keep Integration Logs access limited to trusted users.
 
 ## Uninstall
 

@@ -1,6 +1,7 @@
 import json
 
 from odoo import http
+from odoo.exceptions import ValidationError
 from odoo.http import request
 
 
@@ -53,16 +54,6 @@ class WalaaConnectorController(http.Controller):
                 status=404,
             )
 
-        provided_key = request.httprequest.headers.get("X-Walaa-API-Key")
-        if not provided_key or provided_key != (company.walaa_inbound_api_key or ""):
-            return request.make_json_response(
-                {
-                    "error": "unauthorized",
-                    "message": "Invalid X-Walaa-API-Key.",
-                },
-                status=401,
-            )
-
         if not company.walaa_enabled:
             return request.make_json_response(
                 {
@@ -72,22 +63,29 @@ class WalaaConnectorController(http.Controller):
                 status=403,
             )
 
-        job = (
-            request.env["walaa.integration.job"]
-            .sudo()
-            .create_and_send_product_sync(company, trigger_payload=payload)
-        )
-        if job.state == "sent":
+        limit = payload.get("limit", company._WALAA_PRODUCT_DEFAULT_LIMIT)
+        offset = payload.get("offset", 0)
+
+        try:
+            response_payload = company._walaa_build_product_sync_response(
+                trigger_payload=payload, limit=limit, offset=offset
+            )
+        except ValidationError as exc:
             return request.make_json_response(
-                {"status": "sent", "job_id": job.id},
-                status=200,
+                {
+                    "status": "failed",
+                    "error": str(exc),
+                },
+                status=400,
+            )
+        except Exception as exc:
+            return request.make_json_response(
+                {
+                    "status": "failed",
+                    "error": str(exc),
+                },
+                status=500,
             )
 
-        return request.make_json_response(
-            {
-                "status": "failed",
-                "job_id": job.id,
-                "error": job.last_error,
-            },
-            status=502,
-        )
+        response_payload.update({"status": "sent"})
+        return request.make_json_response(response_payload, status=200)
