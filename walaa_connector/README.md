@@ -9,6 +9,7 @@ This module connects Odoo Sales and Products with your Walaa app.
 - Returns full products directly in the Odoo response (pull mode, no paging).
 - Adds a manual button in Odoo settings to push all products to Walaa in one request.
 - Sends confirmed Sales Orders and paid PoS Orders to Walaa immediately.
+- Uses fixed outbound paths (not editable): `/api/odoo/orders` and `/api/odoo/products/sync`.
 
 ## Requirements
 
@@ -50,8 +51,6 @@ odoo-bin -d <database_name> -u walaa_connector --addons-path=<your_addons_paths>
    - `Enable Walaa Connector`: enable integration for this company.
    - `Walaa Brand Token`: unique brand token for this company.
    - `Walaa Base URL`: base URL of Walaa API, example `https://api.walaa.example`.
-   - `Walaa Product Sync Path`: product push endpoint path, example `/api/odoo/products/sync`.
-   - `Walaa Order Path`: order endpoint path, example `/api/odoo/orders`.
 5. Click `Save`.
 6. Click `Test Walaa Connection`.
 7. For immediate product push, click `Sync All Products Now`.
@@ -108,7 +107,7 @@ From Odoo:
 
 What happens:
 
-- Odoo sends one full payload (all active + saleable products) to `Walaa Base URL + Walaa Product Sync Path`.
+- Odoo sends one full payload (all active + saleable products) to `Walaa Base URL + /api/odoo/products/sync`.
 - Headers include `Content-Type`, `X-Brand-Token`, and `Idempotency-Key`.
 
 ### Product Sync test in VS Code
@@ -129,7 +128,7 @@ Test file includes:
 
 When a Sales Order is confirmed or a PoS Order reaches paid/done/invoiced:
 
-- Odoo immediately sends order payload to Walaa order endpoint.
+- Odoo immediately sends order payload to `Walaa Base URL + /api/odoo/orders`.
 - Headers include:
   - `Content-Type: application/json`
   - `X-Brand-Token: <company_brand_token>`
@@ -172,7 +171,7 @@ Possible responses from `POST /walaa/sync/products`:
    - Ensure Sales Order reached `sale`/`done` or PoS Order reached `paid`/`done`/`invoiced`.
 
 2. **Order push failing with HTTP errors**
-   - Verify `Walaa Base URL` and endpoint paths.
+   - Verify `Walaa Base URL` is correct.
    - Verify Walaa server can accept Odoo IP / traffic.
    - Inspect Odoo server logs.
 

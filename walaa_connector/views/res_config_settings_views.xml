@@ -17,12 +17,6 @@
                         <setting id="walaa_base_url_setting" string="Walaa Base URL" help="Base URL for Walaa APIs.">
                             <field name="walaa_base_url" placeholder="https://api.walaa.example"/>
                         </setting>
-                        <setting id="walaa_order_path_setting" string="Walaa Order Path" help="Relative endpoint path for confirmed order push.">
-                            <field name="walaa_order_path"/>
-                        </setting>
-                        <setting id="walaa_product_sync_path_setting" string="Walaa Product Sync Path" help="Relative endpoint path for manual full product push.">
-                            <field name="walaa_product_sync_path"/>
-                        </setting>
                     </block>
                     <block title="Tools">
                         <setting id="walaa_test_connection_setting" string="Connection Test" help="Send a test request to the Walaa order endpoint.">

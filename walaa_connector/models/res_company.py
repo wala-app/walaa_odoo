@@ -5,13 +5,12 @@ from odoo.exceptions import ValidationError
 class ResCompany(models.Model):
     _inherit = "res.company"
 
+    WALAA_ORDER_PATH = "/api/odoo/orders"
+    WALAA_PRODUCT_SYNC_PATH = "/api/odoo/products/sync"
+
     walaa_enabled = fields.Boolean(string="Enable Walaa Connector", default=False)
     walaa_brand_token = fields.Char(string="Walaa Brand Token", copy=False)
     walaa_base_url = fields.Char(string="Walaa Base URL")
-    walaa_product_sync_path = fields.Char(
-        string="Walaa Product Sync Path", default="/api/odoo/products/sync"
-    )
-    walaa_order_path = fields.Char(string="Walaa Order Path", default="/api/odoo/orders")
 
     _sql_constraints = [
         (
@@ -42,28 +41,27 @@ class ResCompany(models.Model):
             headers["Idempotency-Key"] = idempotency_key
         return headers
 
-    def _walaa_validate_outbound_config(
-        self,
-        require_brand_token=False,
-        require_order_path=True,
-        require_product_sync_path=False,
-    ):
+    def _walaa_validate_outbound_config(self, require_brand_token=False):
         self.ensure_one()
         if not self.walaa_enabled:
             raise ValidationError(_("Walaa connector is disabled for this company."))
         missing = []
         if not self.walaa_base_url:
             missing.append(_("Walaa Base URL"))
-        if require_order_path and not self.walaa_order_path:
-            missing.append(_("Walaa Order Path"))
-        if require_product_sync_path and not self.walaa_product_sync_path:
-            missing.append(_("Walaa Product Sync Path"))
         if require_brand_token and not self.walaa_brand_token:
             missing.append(_("Walaa Brand Token"))
         if missing:
             raise ValidationError(
                 _("Missing Walaa configuration values: %s") % ", ".join(missing)
             )
+
+    def _walaa_order_url(self):
+        self.ensure_one()
+        return self._walaa_compose_url(self.WALAA_ORDER_PATH)
+
+    def _walaa_product_sync_url(self):
+        self.ensure_one()
+        return self._walaa_compose_url(self.WALAA_PRODUCT_SYNC_PATH)
 
     def _walaa_build_full_product_sync_payload(self, trigger_payload=None):
         self.ensure_one()

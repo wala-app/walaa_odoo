@@ -39,8 +39,6 @@ class TestWalaaConnector(SavepointCase):
                 "walaa_enabled": True,
                 "walaa_brand_token": "brand-main",
                 "walaa_base_url": "https://walaa.example",
-                "walaa_product_sync_path": "/api/products/sync",
-                "walaa_order_path": "/api/orders",
             }
         )
 
@@ -74,7 +72,9 @@ class TestWalaaConnector(SavepointCase):
         ) as post_mock:
             order.action_confirm()
         self.assertEqual(post_mock.call_count, 1)
+        endpoint = post_mock.call_args.args[0]
         payload = post_mock.call_args.kwargs["json"]
+        self.assertEqual(endpoint, "https://walaa.example/api/odoo/orders")
         self.assertEqual(payload["order"]["customer"]["email"], "customer@example.com")
         self.assertEqual(payload["order"]["customer"]["phone"], "+96890000000")
 
@@ -85,8 +85,6 @@ class TestWalaaConnector(SavepointCase):
                 "walaa_enabled": True,
                 "walaa_brand_token": "brand-updated-from-settings",
                 "walaa_base_url": "https://new-walaa.example",
-                "walaa_product_sync_path": "/products/v2/sync",
-                "walaa_order_path": "/orders/v2",
             }
         )
         settings.write({"walaa_enabled": True})
@@ -94,8 +92,6 @@ class TestWalaaConnector(SavepointCase):
         self.company.invalidate_cache()
         self.assertEqual(self.company.walaa_brand_token, "brand-updated-from-settings")
         self.assertEqual(self.company.walaa_base_url, "https://new-walaa.example")
-        self.assertEqual(self.company.walaa_product_sync_path, "/products/v2/sync")
-        self.assertEqual(self.company.walaa_order_path, "/orders/v2")
 
     def test_missing_brand_token_skips_order_send(self):
         self.company.walaa_brand_token = False
@@ -123,8 +119,6 @@ class TestWalaaConnector(SavepointCase):
                 "walaa_enabled": True,
                 "walaa_brand_token": "brand-main",
                 "walaa_base_url": "https://walaa.example",
-                "walaa_product_sync_path": "/api/products/sync",
-                "walaa_order_path": "/api/orders",
             }
         )
 
@@ -135,7 +129,9 @@ class TestWalaaConnector(SavepointCase):
             action = settings.action_sync_all_products_now()
 
         self.assertEqual(post_mock.call_count, 1)
+        endpoint = post_mock.call_args.args[0]
         kwargs = post_mock.call_args.kwargs
+        self.assertEqual(endpoint, "https://walaa.example/api/odoo/products/sync")
         self.assertEqual(kwargs["headers"]["X-Brand-Token"], "brand-main")
         self.assertEqual(kwargs["json"]["sync_mode"], "full_push")
         self.assertEqual(kwargs["json"]["total_products"], len(kwargs["json"]["products"]))

@@ -34,7 +34,7 @@ class SaleOrder(models.Model):
 
         try:
             company._walaa_validate_outbound_config(require_brand_token=True)
-            endpoint = company._walaa_compose_url(company.walaa_order_path)
+            endpoint = company._walaa_order_url()
             headers = company._walaa_outbound_headers(
                 idempotency_key=self._walaa_order_event_idempotency_key()
             )
