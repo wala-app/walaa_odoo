@@ -8,7 +8,7 @@ class ResCompany(models.Model):
     WALAA_ORDER_PATH = "/api/odoo/orders"
     WALAA_PRODUCT_SYNC_PATH = "/api/odoo/products/sync"
 
-    walaa_enabled = fields.Boolean(string="Enable Walaa Connector", default=False)
+    walaa_enabled = fields.Boolean(string="Enable Walaa", default=False)
     walaa_brand_token = fields.Char(string="Walaa Brand Token", copy=False)
     walaa_base_url = fields.Char(string="Walaa Base URL")
 

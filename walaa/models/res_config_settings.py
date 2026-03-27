@@ -36,7 +36,7 @@ class ResConfigSettings(models.TransientModel):
                 "type": "ir.actions.client",
                 "tag": "display_notification",
                 "params": {
-                    "title": _("Walaa Connector"),
+                    "title": _("Walaa"),
                     "message": _("Connection test succeeded."),
                     "type": "success",
                     "sticky": False,
@@ -72,7 +72,7 @@ class ResConfigSettings(models.TransientModel):
                 "type": "ir.actions.client",
                 "tag": "display_notification",
                 "params": {
-                    "title": _("Walaa Connector"),
+                    "title": _("Walaa"),
                     "message": _(
                         "Product sync sent successfully (%s products)."
                     )

@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <record id="view_res_config_settings_inherit_walaa_connector" model="ir.ui.view">
-        <field name="name">res.config.settings.walaa.connector</field>
+    <record id="view_res_config_settings_inherit_walaa" model="ir.ui.view">
+        <field name="name">res.config.settings.walaa</field>
         <field name="model">res.config.settings</field>
         <field name="inherit_id" ref="base.res_config_settings_view_form"/>
         <field name="arch" type="xml">
             <xpath expr="//form" position="inside">
-                <app name="walaa_connector" string="Walaa Connector">
+                <app name="walaa" string="Walaa">
                     <block title="Connection">
-                        <setting id="walaa_enabled_setting" string="Enable Walaa Connector" help="Enable per-company sync with Walaa.">
+                        <setting id="walaa_enabled_setting" string="Enable Walaa" help="Enable per-company sync with Walaa.">
                             <field name="walaa_enabled"/>
                         </setting>
                         <setting id="walaa_brand_token_setting" string="Walaa Brand Token" help="Brand identity sent to Walaa in X-Brand-Token.">

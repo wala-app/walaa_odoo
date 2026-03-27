@@ -9,7 +9,7 @@ class FakeResponse:
         self.text = text
 
 
-class TestWalaaConnector(SavepointCase):
+class TestWalaa(SavepointCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -68,7 +68,7 @@ class TestWalaaConnector(SavepointCase):
         order = self._create_sale_order()
 
         with patch(
-            "odoo.addons.walaa_connector.models.sale_order.requests.post",
+            "odoo.addons.walaa.models.sale_order.requests.post",
             return_value=FakeResponse(200, "ok"),
         ) as post_mock:
             order.action_confirm()
@@ -99,7 +99,7 @@ class TestWalaaConnector(SavepointCase):
         order = self._create_sale_order()
 
         with patch(
-            "odoo.addons.walaa_connector.models.sale_order.requests.post",
+            "odoo.addons.walaa.models.sale_order.requests.post",
             return_value=FakeResponse(200, "ok"),
         ) as post_mock:
             order.action_confirm()
@@ -132,7 +132,7 @@ class TestWalaaConnector(SavepointCase):
         )
 
         with patch(
-            "odoo.addons.walaa_connector.models.res_config_settings.requests.post",
+            "odoo.addons.walaa.models.res_config_settings.requests.post",
             return_value=FakeResponse(200, "ok"),
         ) as post_mock:
             action = settings.action_sync_all_products_now()

@@ -1,4 +1,4 @@
-# Walaa Connector (Odoo 18)
+# Walaa (Odoo 18)
 
 This module connects Odoo Sales and Products with your Walaa app.
 
@@ -20,18 +20,18 @@ This module connects Odoo Sales and Products with your Walaa app.
 
 ## Installation
 
-1. Copy module folder `walaa_connector` into your Odoo addons path.
+1. Copy module folder `walaa` into your Odoo addons path.
 2. Restart Odoo service.
 3. In Odoo UI:
    - Go to `Apps`.
    - Click `Update Apps List`.
-   - Search for `Walaa Connector`.
+   - Search for `Walaa`.
    - Click `Install`.
 
 ### Optional CLI install
 
 ```bash
-odoo-bin -d <database_name> -i walaa_connector --addons-path=<your_addons_paths>
+odoo-bin -d <database_name> -i walaa --addons-path=<your_addons_paths>
 ```
 
 ### If upgrading from an older version
@@ -39,16 +39,16 @@ odoo-bin -d <database_name> -i walaa_connector --addons-path=<your_addons_paths>
 1. Upgrade module:
 
 ```bash
-odoo-bin -d <database_name> -u walaa_connector --addons-path=<your_addons_paths>
+odoo-bin -d <database_name> -u walaa --addons-path=<your_addons_paths>
 ```
 
 ## Configuration
 
 1. Go to `Settings` -> `General Settings`.
-2. Find section `Walaa Connector`.
+2. Find section `Walaa`.
 3. Select the correct company (top-right company switcher).
 4. Fill fields:
-   - `Enable Walaa Connector`: enable integration for this company.
+   - `Enable Walaa`: enable integration for this company.
    - `Walaa Brand Token`: unique brand token for this company.
    - `Walaa Base URL`: base URL of Walaa API, example `https://api.walaa.example`.
 5. Click `Save`.
@@ -106,7 +106,7 @@ What happens after request:
 From Odoo:
 
 1. Go to `Settings` -> `General Settings`.
-2. Open `Walaa Connector` section.
+2. Open `Walaa` section.
 3. Click `Sync All Products Now`.
 
 What happens:
@@ -185,7 +185,7 @@ Possible responses from `POST /walaa/sync/products`:
 4. **Install/upgrade still fails after code fix**
    - Restart Odoo service.
    - Update Apps List from Odoo Apps menu.
-   - Upgrade module again: `odoo-bin -d <database_name> -u walaa_connector --addons-path=<your_addons_paths>`.
+   - Upgrade module again: `odoo-bin -d <database_name> -u walaa --addons-path=<your_addons_paths>`.
 
 ## Security Recommendations
 
@@ -196,7 +196,7 @@ Possible responses from `POST /walaa/sync/products`:
 ## Uninstall
 
 1. Go to `Apps`.
-2. Find `Walaa Connector`.
+2. Find `Walaa`.
 3. Click `Uninstall`.
 4. Restart Odoo service.
 5. Remove module folder from addons path if no longer needed.
