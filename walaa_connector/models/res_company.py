@@ -128,15 +128,21 @@ class ResCompany(models.Model):
                 }
             )
 
+        image_value = product.image_1920 or product.product_tmpl_id.image_1920
+        if isinstance(image_value, bytes):
+            image_value = image_value.decode("utf-8")
+
         return {
             "id": product.id,
             "template_id": product.product_tmpl_id.id,
             "sku": product.default_code,
             "name": product.display_name,
             "price": product.lst_price,
+            "cost": product.standard_price,
             "currency": currency_code,
             "barcode": product.barcode,
             "active": product.active,
             "category": product.categ_id.name,
+            "image_base64": image_value,
             "variant_attributes": variant_attributes,
         }

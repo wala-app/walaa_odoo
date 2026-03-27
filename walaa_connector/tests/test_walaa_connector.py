@@ -27,6 +27,7 @@ class TestWalaaConnector(SavepointCase):
                 "name": "Walaa Test Product",
                 "default_code": "WALAA-SKU-1",
                 "list_price": 120.0,
+                "standard_price": 75.0,
                 "sale_ok": True,
                 "type": "consu",
             }
@@ -111,6 +112,14 @@ class TestWalaaConnector(SavepointCase):
         self.assertIn("products", response_payload)
         self.assertEqual(response_payload["sync_mode"], "pull")
         self.assertEqual(response_payload["total_products"], len(response_payload["products"]))
+        product = next(
+            (p for p in response_payload["products"] if p.get("sku") == "WALAA-SKU-1"),
+            None,
+        )
+        self.assertTrue(product)
+        self.assertIn("cost", product)
+        self.assertIn("image_base64", product)
+        self.assertEqual(product["cost"], 75.0)
 
     def test_manual_sync_all_products_now(self):
         settings = self.env["res.config.settings"].create(
@@ -135,4 +144,12 @@ class TestWalaaConnector(SavepointCase):
         self.assertEqual(kwargs["headers"]["X-Brand-Token"], "brand-main")
         self.assertEqual(kwargs["json"]["sync_mode"], "full_push")
         self.assertEqual(kwargs["json"]["total_products"], len(kwargs["json"]["products"]))
+        product = next(
+            (p for p in kwargs["json"]["products"] if p.get("sku") == "WALAA-SKU-1"),
+            None,
+        )
+        self.assertTrue(product)
+        self.assertIn("cost", product)
+        self.assertIn("image_base64", product)
+        self.assertEqual(product["cost"], 75.0)
         self.assertEqual(action["type"], "ir.actions.client")

@@ -84,7 +84,10 @@ Success response:
     {
       "id": 10,
       "sku": "SKU-10",
-      "name": "Example Product"
+      "name": "Example Product",
+      "price": 10.0,
+      "cost": 7.5,
+      "image_base64": "iVBORw0KGgoAAAANSUhEUgAA..."
     }
   ]
 }
@@ -96,6 +99,7 @@ What happens after request:
 
 - Odoo processes it immediately in the same request.
 - Odoo returns all active saleable products for that company (no paging).
+- Product item includes sale price, cost, and image (`image_base64`).
 
 ### 1.1) Product sync (Odoo manual button -> Walaa)
 
