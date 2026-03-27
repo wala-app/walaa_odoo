@@ -1,6 +1,5 @@
 from unittest.mock import patch
 
-from odoo.exceptions import ValidationError
 from odoo.tests.common import SavepointCase
 
 
@@ -40,6 +39,7 @@ class TestWalaaConnector(SavepointCase):
                 "walaa_enabled": True,
                 "walaa_brand_token": "brand-main",
                 "walaa_base_url": "https://walaa.example",
+                "walaa_product_sync_path": "/api/products/sync",
                 "walaa_order_path": "/api/orders",
             }
         )
@@ -85,6 +85,7 @@ class TestWalaaConnector(SavepointCase):
                 "walaa_enabled": True,
                 "walaa_brand_token": "brand-updated-from-settings",
                 "walaa_base_url": "https://new-walaa.example",
+                "walaa_product_sync_path": "/products/v2/sync",
                 "walaa_order_path": "/orders/v2",
             }
         )
@@ -93,6 +94,7 @@ class TestWalaaConnector(SavepointCase):
         self.company.invalidate_cache()
         self.assertEqual(self.company.walaa_brand_token, "brand-updated-from-settings")
         self.assertEqual(self.company.walaa_base_url, "https://new-walaa.example")
+        self.assertEqual(self.company.walaa_product_sync_path, "/products/v2/sync")
         self.assertEqual(self.company.walaa_order_path, "/orders/v2")
 
     def test_missing_brand_token_skips_order_send(self):
@@ -108,17 +110,33 @@ class TestWalaaConnector(SavepointCase):
 
     def test_product_sync_response_builder(self):
         response_payload = self.company._walaa_build_product_sync_response(
-            trigger_payload={"brand_token": "brand-main"}, limit=50, offset=0
+            trigger_payload={"brand_token": "brand-main"}
         )
         self.assertIn("products", response_payload)
-        self.assertIn("pagination", response_payload)
-        self.assertLessEqual(response_payload["pagination"]["count"], 50)
         self.assertEqual(response_payload["sync_mode"], "pull")
+        self.assertEqual(response_payload["total_products"], len(response_payload["products"]))
 
-    def test_product_sync_response_builder_rejects_invalid_limit(self):
-        with self.assertRaises(ValidationError):
-            self.company._walaa_build_product_sync_response(
-                trigger_payload={"brand_token": "brand-main"},
-                limit=0,
-                offset=0,
-            )
+    def test_manual_sync_all_products_now(self):
+        settings = self.env["res.config.settings"].create(
+            {
+                "company_id": self.company.id,
+                "walaa_enabled": True,
+                "walaa_brand_token": "brand-main",
+                "walaa_base_url": "https://walaa.example",
+                "walaa_product_sync_path": "/api/products/sync",
+                "walaa_order_path": "/api/orders",
+            }
+        )
+
+        with patch(
+            "odoo.addons.walaa_connector.models.res_config_settings.requests.post",
+            return_value=FakeResponse(200, "ok"),
+        ) as post_mock:
+            action = settings.action_sync_all_products_now()
+
+        self.assertEqual(post_mock.call_count, 1)
+        kwargs = post_mock.call_args.kwargs
+        self.assertEqual(kwargs["headers"]["X-Brand-Token"], "brand-main")
+        self.assertEqual(kwargs["json"]["sync_mode"], "full_push")
+        self.assertEqual(kwargs["json"]["total_products"], len(kwargs["json"]["products"]))
+        self.assertEqual(action["type"], "ir.actions.client")

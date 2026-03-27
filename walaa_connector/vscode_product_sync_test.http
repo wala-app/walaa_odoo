@@ -1,0 +1,26 @@
+@baseUrl = http://192.168.161.128:8069
+@brandToken = f107fc86208d60b320a7e85754109caf9f179d0982594ad60c6c710accdb6968
+
+### Product Sync - Success (Full Catalog)
+POST {{baseUrl}}/walaa/sync/products
+Content-Type: application/json
+
+{
+  "brand_token": "{{brandToken}}"
+}
+
+### Product Sync - Missing Token (Expected 400)
+POST {{baseUrl}}/walaa/sync/products
+Content-Type: application/json
+
+{
+  "brand_tokenx": "missing"
+}
+
+### Product Sync - Unknown Token (Expected 404)
+POST {{baseUrl}}/walaa/sync/products
+Content-Type: application/json
+
+{
+  "brand_token": "unknown-brand-token"
+}

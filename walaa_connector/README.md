@@ -6,13 +6,14 @@ This module connects Odoo Sales and Products with your Walaa app.
 
 - Stores Walaa configuration per Odoo company.
 - Receives product sync triggers from Walaa (`POST /walaa/sync/products`).
-- Returns products directly in the Odoo response (pull mode).
-- Sends confirmed sales orders to Walaa immediately.
+- Returns full products directly in the Odoo response (pull mode, no paging).
+- Adds a manual button in Odoo settings to push all products to Walaa in one request.
+- Sends confirmed Sales Orders and paid PoS Orders to Walaa immediately.
 
 ## Requirements
 
 - Odoo 18 (self-hosted).
-- Installed Odoo modules: `sale`, `product`, `base`.
+- Installed Odoo modules: `sale`, `product`, `base`, `point_of_sale`.
 - Walaa API endpoints reachable from the Odoo server.
 - Python `requests` package available in Odoo environment.
 
@@ -49,9 +50,11 @@ odoo-bin -d <database_name> -u walaa_connector --addons-path=<your_addons_paths>
    - `Enable Walaa Connector`: enable integration for this company.
    - `Walaa Brand Token`: unique brand token for this company.
    - `Walaa Base URL`: base URL of Walaa API, example `https://api.walaa.example`.
+   - `Walaa Product Sync Path`: product push endpoint path, example `/api/odoo/products/sync`.
    - `Walaa Order Path`: order endpoint path, example `/api/odoo/orders`.
 5. Click `Save`.
 6. Click `Test Walaa Connection`.
+7. For immediate product push, click `Sync All Products Now`.
 
 ## Usage
 
@@ -66,9 +69,7 @@ Walaa calls Odoo:
 
 ```json
 {
-  "brand_token": "your_brand_token",
-  "limit": 200,
-  "offset": 0
+  "brand_token": "your_brand_token"
 }
 ```
 
@@ -79,14 +80,7 @@ Success response:
   "event": "product_sync",
   "sync_mode": "pull",
   "status": "sent",
-  "pagination": {
-    "limit": 200,
-    "offset": 0,
-    "count": 200,
-    "total": 540,
-    "has_more": true,
-    "next_offset": 200
-  },
+  "total_products": 540,
   "products": [
     {
       "id": 10,
@@ -102,12 +96,38 @@ HTTP status on success: `200`.
 What happens after request:
 
 - Odoo processes it immediately in the same request.
-- Odoo returns active saleable products for that company.
-- Use `limit`/`offset` to page through the full catalog.
+- Odoo returns all active saleable products for that company (no paging).
 
-### 2) Order sync (Odoo -> Walaa)
+### 1.1) Product sync (Odoo manual button -> Walaa)
 
-When a Sales Order is confirmed:
+From Odoo:
+
+1. Go to `Settings` -> `General Settings`.
+2. Open `Walaa Connector` section.
+3. Click `Sync All Products Now`.
+
+What happens:
+
+- Odoo sends one full payload (all active + saleable products) to `Walaa Base URL + Walaa Product Sync Path`.
+- Headers include `Content-Type`, `X-Brand-Token`, and `Idempotency-Key`.
+
+### Product Sync test in VS Code
+
+1. Install VS Code extension `REST Client` (by Huachao Mao).
+2. Open file `vscode_product_sync_test.http` in this module.
+3. Edit variables at top of file:
+   - `@baseUrl` (your Odoo URL)
+   - `@brandToken` (a valid brand token from Odoo settings)
+4. Click `Send Request` above each request.
+
+Test file includes:
+- Success full product pull
+- Missing token (`400`)
+- Unknown token (`404`)
+
+### 2) Order sync (Odoo Sales + PoS -> Walaa)
+
+When a Sales Order is confirmed or a PoS Order reaches paid/done/invoiced:
 
 - Odoo immediately sends order payload to Walaa order endpoint.
 - Headers include:
@@ -117,15 +137,16 @@ When a Sales Order is confirmed:
 
 If brand token is missing:
 
-- Order confirmation is not blocked.
+- Order processing is not blocked.
 - Order push is skipped.
 
 ## Delivery Behavior
 
 - No cron is used for sending requests.
 - Product sync is pull-response from Odoo.
-- Order push is synchronous (direct) from Odoo to Walaa.
-- On failure, Odoo writes warning/error logs in server logs (does not block order confirmation).
+- Manual product push sends all products in one request (no paging).
+- Sales + PoS order push is synchronous (direct) from Odoo to Walaa.
+- On failure, Odoo writes warning/error logs in server logs (does not block Sales/PoS flows).
 
 ## API Error Reference (Product Trigger)
 
@@ -133,7 +154,6 @@ Possible responses from `POST /walaa/sync/products`:
 
 - `400` invalid JSON body.
 - `400` missing `brand_token`.
-- `400` invalid pagination (`limit`/`offset`).
 - `404` unknown `brand_token` (no matching company).
 - `403` connector disabled for company.
 - `200` sent successfully.
@@ -147,9 +167,9 @@ Possible responses from `POST /walaa/sync/products`:
 
 ## Troubleshooting
 
-1. **Order not sent on confirmation**
+1. **Order not sent**
    - Ensure company has Walaa connector enabled.
-   - Ensure order actually reached `sale` or `done` state.
+   - Ensure Sales Order reached `sale`/`done` or PoS Order reached `paid`/`done`/`invoiced`.
 
 2. **Order push failing with HTTP errors**
    - Verify `Walaa Base URL` and endpoint paths.

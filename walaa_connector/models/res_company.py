@@ -5,12 +5,12 @@ from odoo.exceptions import ValidationError
 class ResCompany(models.Model):
     _inherit = "res.company"
 
-    _WALAA_PRODUCT_DEFAULT_LIMIT = 200
-    _WALAA_PRODUCT_MAX_LIMIT = 1000
-
     walaa_enabled = fields.Boolean(string="Enable Walaa Connector", default=False)
     walaa_brand_token = fields.Char(string="Walaa Brand Token", copy=False)
     walaa_base_url = fields.Char(string="Walaa Base URL")
+    walaa_product_sync_path = fields.Char(
+        string="Walaa Product Sync Path", default="/api/odoo/products/sync"
+    )
     walaa_order_path = fields.Char(string="Walaa Order Path", default="/api/odoo/orders")
 
     _sql_constraints = [
@@ -42,15 +42,22 @@ class ResCompany(models.Model):
             headers["Idempotency-Key"] = idempotency_key
         return headers
 
-    def _walaa_validate_outbound_config(self, require_brand_token=False):
+    def _walaa_validate_outbound_config(
+        self,
+        require_brand_token=False,
+        require_order_path=True,
+        require_product_sync_path=False,
+    ):
         self.ensure_one()
         if not self.walaa_enabled:
             raise ValidationError(_("Walaa connector is disabled for this company."))
         missing = []
         if not self.walaa_base_url:
             missing.append(_("Walaa Base URL"))
-        if not self.walaa_order_path:
+        if require_order_path and not self.walaa_order_path:
             missing.append(_("Walaa Order Path"))
+        if require_product_sync_path and not self.walaa_product_sync_path:
+            missing.append(_("Walaa Product Sync Path"))
         if require_brand_token and not self.walaa_brand_token:
             missing.append(_("Walaa Brand Token"))
         if missing:
@@ -58,24 +65,9 @@ class ResCompany(models.Model):
                 _("Missing Walaa configuration values: %s") % ", ".join(missing)
             )
 
-    def _walaa_build_product_sync_response(self, trigger_payload=None, limit=200, offset=0):
+    def _walaa_build_full_product_sync_payload(self, trigger_payload=None):
         self.ensure_one()
         trigger_payload = trigger_payload or {}
-        try:
-            limit = int(limit)
-            offset = int(offset)
-        except (TypeError, ValueError) as exc:
-            raise ValidationError(_("limit and offset must be integers.")) from exc
-
-        if limit <= 0:
-            raise ValidationError(_("limit must be greater than 0."))
-        if limit > self._WALAA_PRODUCT_MAX_LIMIT:
-            raise ValidationError(
-                _("limit cannot exceed %s.") % self._WALAA_PRODUCT_MAX_LIMIT
-            )
-        if offset < 0:
-            raise ValidationError(_("offset cannot be negative."))
-
         product_model = self.env["product.product"].sudo()
         domain = [
             ("active", "=", True),
@@ -84,9 +76,34 @@ class ResCompany(models.Model):
             ("company_id", "=", False),
             ("company_id", "=", self.id),
         ]
-        total = product_model.search_count(domain)
-        products = product_model.search(domain, order="id asc", limit=limit, offset=offset)
-        count = len(products)
+        products = product_model.search(domain, order="id asc")
+        return {
+            "event": "product_sync",
+            "sync_mode": "full_push",
+            "company": {
+                "id": self.id,
+                "name": self.name,
+            },
+            "trigger": trigger_payload,
+            "total_products": len(products),
+            "products": [
+                self._walaa_serialize_product(product, self.currency_id.name)
+                for product in products
+            ],
+        }
+
+    def _walaa_build_product_sync_response(self, trigger_payload=None):
+        self.ensure_one()
+        trigger_payload = trigger_payload or {}
+        product_model = self.env["product.product"].sudo()
+        domain = [
+            ("active", "=", True),
+            ("sale_ok", "=", True),
+            "|",
+            ("company_id", "=", False),
+            ("company_id", "=", self.id),
+        ]
+        products = product_model.search(domain, order="id asc")
 
         return {
             "event": "product_sync",
@@ -96,14 +113,7 @@ class ResCompany(models.Model):
                 "name": self.name,
             },
             "trigger": trigger_payload,
-            "pagination": {
-                "limit": limit,
-                "offset": offset,
-                "count": count,
-                "total": total,
-                "has_more": offset + count < total,
-                "next_offset": offset + count if offset + count < total else None,
-            },
+            "total_products": len(products),
             "products": [
                 self._walaa_serialize_product(product, self.currency_id.name)
                 for product in products

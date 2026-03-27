@@ -5,7 +5,7 @@
     "category": "Sales",
     "author": "Walaa",
     "license": "LGPL-3",
-    "depends": ["base", "product", "sale"],
+    "depends": ["base", "product", "sale", "point_of_sale"],
     "data": [
         "views/res_config_settings_views.xml"
     ],

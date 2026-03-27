@@ -63,12 +63,9 @@ class WalaaConnectorController(http.Controller):
                 status=403,
             )
 
-        limit = payload.get("limit", company._WALAA_PRODUCT_DEFAULT_LIMIT)
-        offset = payload.get("offset", 0)
-
         try:
             response_payload = company._walaa_build_product_sync_response(
-                trigger_payload=payload, limit=limit, offset=offset
+                trigger_payload=payload
             )
         except ValidationError as exc:
             return request.make_json_response(
