@@ -18,6 +18,73 @@ function cleanPhone(raw) {
     return raw.replace(/[\s\-\(\)]/g, "");
 }
 
+function getOrderProductChoices(order) {
+    const lines = order?.lines || [];
+    const seenProductIds = new Set();
+    const choices = [];
+    for (const line of lines) {
+        const product = line?.product_id;
+        const productId = product?.id;
+        if (!productId || seenProductIds.has(productId)) {
+            continue;
+        }
+        seenProductIds.add(productId);
+        const productName =
+            (typeof line.get_full_product_name === "function" && line.get_full_product_name()) ||
+            product.display_name ||
+            product.name ||
+            "Product";
+        const qty =
+            (typeof line.get_quantity === "function" && line.get_quantity()) || line.qty || 0;
+        choices.push({
+            id: productId,
+            label: `${productName} (x${qty})`,
+            usedOnProductId: productId,
+            usedOnProductName: productName,
+        });
+    }
+    return choices;
+}
+
+function askProductForGift(dialog, gift, productChoices) {
+    return new Promise((resolve) => {
+        dialog.add(WalaaGiftProductDialog, {
+            giftName: gift?.name || "Gift",
+            products: productChoices,
+            onConfirm: (product) => resolve(product || false),
+            close: () => resolve(false),
+        });
+    });
+}
+
+async function mapSelectedGiftsToProducts(dialog, order, selectedGifts) {
+    const productChoices = getOrderProductChoices(order);
+    if (!selectedGifts?.length) {
+        return [];
+    }
+    if (!productChoices.length) {
+        return selectedGifts.map((gift) => ({
+            ...gift,
+            usedOnProductId: false,
+            usedOnProductName: false,
+        }));
+    }
+
+    const mapped = [];
+    for (const gift of selectedGifts) {
+        const selected = await askProductForGift(dialog, gift, productChoices);
+        if (!selected?.usedOnProductId) {
+            return false;
+        }
+        mapped.push({
+            ...gift,
+            usedOnProductId: selected.usedOnProductId,
+            usedOnProductName: selected.usedOnProductName,
+        });
+    }
+    return mapped;
+}
+
 // ─── Extend PosOrder to carry multiple Walaa gifts ──────────────────────────
 
 patch(PosOrder.prototype, {
@@ -81,10 +148,10 @@ class WalaaGiftDialog extends Component {
         return this.state.selectedIds.has(giftId);
     }
 
-    confirm() {
+    async confirm() {
         const chosen = this.props.gifts.filter((g) => this.state.selectedIds.has(g.id));
-        this.props.onConfirm(chosen);
         this.props.close();
+        await this.props.onConfirm(chosen);
     }
 
     get selectedCount() {
@@ -98,6 +165,39 @@ class WalaaGiftDialog extends Component {
         } catch {
             return dateStr;
         }
+    }
+}
+
+class WalaaGiftProductDialog extends Component {
+    static template = "walaa.WalaaGiftProductDialog";
+    static components = { Dialog };
+    static props = {
+        giftName: String,
+        products: Array,
+        onConfirm: Function,
+        close: Function,
+    };
+
+    setup() {
+        this.state = useState({
+            selectedProductId: this.props.products?.[0]?.id || null,
+        });
+    }
+
+    choose(product) {
+        this.state.selectedProductId = product.id;
+    }
+
+    isSelected(productId) {
+        return String(this.state.selectedProductId) === String(productId);
+    }
+
+    confirm() {
+        const selected = (this.props.products || []).find(
+            (p) => String(p.id) === String(this.state.selectedProductId)
+        );
+        this.props.onConfirm(selected || false);
+        this.props.close();
     }
 }
 
@@ -144,17 +244,25 @@ patch(ProductScreen.prototype, {
                         dialog.add(WalaaGiftDialog, {
                             gifts: result.gifts,
                             alreadySelected: order?.walaaUsedGifts || [],
-                            onConfirm: (chosen) => {
+                            onConfirm: async (chosen) => {
                                 const currentOrder = pos.get_order();
                                 if (currentOrder) {
-                                    currentOrder.walaaUsedGifts = chosen;
+                                    const mappedGifts = await mapSelectedGiftsToProducts(
+                                        dialog,
+                                        currentOrder,
+                                        chosen
+                                    );
+                                    if (mappedGifts === false) {
+                                        return;
+                                    }
+                                    currentOrder.walaaUsedGifts = mappedGifts;
                                     if (typeof currentOrder.save_to_db === "function") {
                                         currentOrder.save_to_db();
                                     }
                                     if (typeof currentOrder.trigger === "function") {
                                         currentOrder.trigger("change");
                                     }
-                                    console.log("[Walaa] Gifts selected:", chosen);
+                                    console.log("[Walaa] Gifts selected:", mappedGifts);
                                 }
                             },
                         });

@@ -200,6 +200,8 @@ class TestWalaa(SavepointCase):
                             "id": 42,
                             "rewardId": 7,
                             "name": "Reward 42",
+                            "usedOnProductId": self.product.id,
+                            "usedOnProductName": self.product.name,
                         }
                     ]
                 )
@@ -208,6 +210,12 @@ class TestWalaa(SavepointCase):
         payload = order._walaa_build_pos_payload()
         self.assertEqual(payload["order"]["usedGifts"][0]["id"], 42)
         self.assertEqual(payload["order"]["usedGifts"][0]["rewardId"], 7)
+        self.assertEqual(
+            payload["order"]["usedGifts"][0]["usedOnProductId"], self.product.id
+        )
+        self.assertEqual(
+            payload["order"]["usedGifts"][0]["usedOnProductName"], self.product.name
+        )
 
     def test_gifts_controller_returns_empty_when_disabled(self):
         """Controller returns empty gifts list when walaa is disabled."""

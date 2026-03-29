@@ -70,4 +70,57 @@
         </Dialog>
     </t>
 
+    <!-- Walaa product picker for each selected gift -->
+    <t t-name="walaa.WalaaGiftProductDialog">
+        <Dialog title="'Select Product For Gift'" size="'md'">
+            <div class="walaa-gift-list">
+                <p class="text-muted small mb-3">
+                    Apply "<t t-esc="props.giftName"/>" to which product?
+                </p>
+                <div
+                    t-foreach="props.products"
+                    t-as="product"
+                    t-key="product.id"
+                    class="walaa-gift-item d-flex align-items-start p-3 mb-2 border rounded"
+                    t-att-class="{
+                        'border-primary bg-primary bg-opacity-10': isSelected(product.id),
+                        'border-secondary': !isSelected(product.id)
+                    }"
+                    style="cursor:pointer"
+                    t-on-click="() => this.choose(product)">
+
+                    <div class="form-check me-3 mt-1">
+                        <input
+                            type="radio"
+                            class="form-check-input"
+                            name="walaa-gift-product"
+                            t-att-id="'walaa-gift-product-' + product.id"
+                            t-att-checked="isSelected(product.id)"/>
+                    </div>
+
+                    <div class="flex-grow-1">
+                        <label
+                            t-att-for="'walaa-gift-product-' + product.id"
+                            class="mb-0 fw-semibold"
+                            style="cursor:pointer">
+                            <t t-esc="product.label"/>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <t t-set-slot="footer">
+                <button class="btn btn-secondary" t-on-click="() => props.close()">
+                    Cancel
+                </button>
+                <button
+                    class="btn btn-primary ms-2"
+                    t-on-click="confirm"
+                    t-att-disabled="!state.selectedProductId">
+                    <i class="fa fa-check me-1"/>
+                    Apply
+                </button>
+            </t>
+        </Dialog>
+    </t>
+
 </templates>
