@@ -20,7 +20,7 @@
                     t-key="gift.id"
                     class="walaa-gift-item d-flex align-items-start p-3 mb-2 border rounded"
                     t-att-class="{
-                        'border-primary bg-primary bg-opacity-10': isSelected(gift.id),
+                        'border-primary bg-primary text-white': isSelected(gift.id),
                         'border-secondary': !isSelected(gift.id)
                     }"
                     style="cursor:pointer"
@@ -42,7 +42,12 @@
                             <t t-esc="gift.name || ('Reward #' + (gift.rewardId || gift.id))"/>
                         </label>
                         <t t-if="gift.expireDate">
-                            <small class="text-muted d-block">
+                            <small
+                                class="d-block"
+                                t-att-class="{
+                                    'text-white-50': isSelected(gift.id),
+                                    'text-muted': !isSelected(gift.id)
+                                }">
                                 Expires: <t t-esc="formatExpiry(gift.expireDate)"/>
                             </small>
                         </t>
@@ -83,7 +88,7 @@
                     t-key="product.id"
                     class="walaa-gift-item d-flex align-items-start p-3 mb-2 border rounded"
                     t-att-class="{
-                        'border-primary bg-primary bg-opacity-10': isSelected(product.id),
+                        'border-primary bg-primary text-white': isSelected(product.id),
                         'border-secondary': !isSelected(product.id)
                     }"
                     style="cursor:pointer"

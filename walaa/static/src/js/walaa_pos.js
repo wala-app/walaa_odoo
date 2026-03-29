@@ -71,11 +71,23 @@ async function mapSelectedGiftsToProducts(dialog, order, selectedGifts) {
     }
 
     const mapped = [];
+    const usedProductIds = new Set();
     for (const gift of selectedGifts) {
-        const selected = await askProductForGift(dialog, gift, productChoices);
+        const availableChoices = productChoices.filter(
+            (choice) => !usedProductIds.has(String(choice.usedOnProductId))
+        );
+        if (!availableChoices.length) {
+            console.warn(
+                "[Walaa] No more available products to map for remaining gifts. Remaining gifts are skipped."
+            );
+            break;
+        }
+
+        const selected = await askProductForGift(dialog, gift, availableChoices);
         if (!selected?.usedOnProductId) {
             return false;
         }
+        usedProductIds.add(String(selected.usedOnProductId));
         mapped.push({
             ...gift,
             usedOnProductId: selected.usedOnProductId,
