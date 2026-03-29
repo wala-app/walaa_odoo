@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <!-- Walaa Gift Selection Dialog (multi-select with checkboxes) -->
+    <t t-name="walaa.WalaaGiftDialog">
+        <Dialog title="'Walaa Rewards &amp; Gifts'" size="'md'">
+
+            <div class="walaa-gift-list">
+                <p class="text-muted small mb-3">
+                    Select one or more rewards / gifts to apply to this order:
+                </p>
+
+                <t t-if="props.gifts.length === 0">
+                    <p class="text-center text-muted py-4">No gifts available.</p>
+                </t>
+
+                <div
+                    t-foreach="props.gifts"
+                    t-as="gift"
+                    t-key="gift.id"
+                    class="walaa-gift-item d-flex align-items-start p-3 mb-2 border rounded"
+                    t-att-class="{
+                        'border-primary bg-primary bg-opacity-10': isSelected(gift.id),
+                        'border-secondary': !isSelected(gift.id)
+                    }"
+                    style="cursor:pointer"
+                    t-on-click="() => this.toggleGift(gift)">
+
+                    <div class="form-check me-3 mt-1">
+                        <input
+                            type="checkbox"
+                            class="form-check-input"
+                            t-att-id="'walaa-gift-' + gift.id"
+                            t-att-checked="isSelected(gift.id)"/>
+                    </div>
+
+                    <div class="flex-grow-1">
+                        <label
+                            t-att-for="'walaa-gift-' + gift.id"
+                            class="mb-0 fw-semibold"
+                            style="cursor:pointer">
+                            <t t-esc="gift.name || ('Reward #' + (gift.rewardId || gift.id))"/>
+                        </label>
+                        <t t-if="gift.expireDate">
+                            <small class="text-muted d-block">
+                                Expires: <t t-esc="formatExpiry(gift.expireDate)"/>
+                            </small>
+                        </t>
+                    </div>
+
+                    <span class="badge bg-secondary align-self-center ms-2">
+                        #<t t-esc="gift.id"/>
+                    </span>
+                </div>
+            </div>
+
+            <t t-set-slot="footer">
+                <button class="btn btn-secondary" t-on-click="() => props.close()">
+                    Cancel
+                </button>
+                <button
+                    class="btn btn-primary ms-2"
+                    t-on-click="confirm"
+                    t-att-disabled="selectedCount === 0">
+                    <i class="fa fa-check me-1"/>
+                    Apply <t t-if="selectedCount > 0">(<t t-esc="selectedCount"/>)</t>
+                </button>
+            </t>
+
+        </Dialog>
+    </t>
+
+</templates>

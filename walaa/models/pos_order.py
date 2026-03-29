@@ -1,4 +1,6 @@
+import json
 import logging
+import re
 
 import requests
 
@@ -7,11 +9,19 @@ from odoo import api, fields, models
 _logger = logging.getLogger(__name__)
 
 
+def _clean_phone(raw):
+    """Strip spaces, dashes, parentheses so the phone is clean digits + leading '+'."""
+    if not raw:
+        return ""
+    return re.sub(r"[\s\-\(\)]", "", raw)
+
+
 class PosOrder(models.Model):
     _inherit = "pos.order"
 
     walaa_sent = fields.Boolean(string="Sent To Walaa", default=False, copy=False)
     walaa_last_error = fields.Text(string="Walaa Last Error", copy=False)
+    used_gifts = fields.Text(string="Walaa Used Gifts", copy=False)
 
     def write(self, vals):
         result = super().write(vals)
@@ -22,8 +32,38 @@ class PosOrder(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         orders = super().create(vals_list)
-        orders._walaa_try_send_ready_orders()
+        if not self.env.context.get("walaa_skip_sync"):
+            orders._walaa_try_send_ready_orders()
         return orders
+
+    @classmethod
+    def create_from_ui(cls, orders, draft=False):
+        """Override to ensure gift fields are set before the Walaa sync runs."""
+        orders_with_gifts = {}
+        for i, order in enumerate(orders):
+            data = order.get("data", {})
+            used_gifts = data.get("used_gifts")
+            if used_gifts:
+                orders_with_gifts[i] = used_gifts
+
+        if orders_with_gifts:
+            ctx = {**cls.env.context, "walaa_skip_sync": True}
+            result = super(PosOrder, cls.with_context(ctx)).create_from_ui(orders, draft)
+
+            for i, gifts_json in orders_with_gifts.items():
+                if i >= len(result):
+                    continue
+                entry = result[i]
+                order_id = entry.get("id") if isinstance(entry, dict) else entry
+                if not order_id:
+                    continue
+                order_record = cls.env["pos.order"].browse(order_id)
+                order_record.sudo().write({"used_gifts": gifts_json})
+                order_record._walaa_try_send_ready_orders()
+
+            return result
+
+        return super().create_from_ui(orders, draft)
 
     def _walaa_try_send_ready_orders(self):
         ready_states = {"paid", "done", "invoiced"}
@@ -71,6 +111,16 @@ class PosOrder(models.Model):
             _logger.exception("Walaa POS order push failed for %s", self.name)
             return False, str(exc)
 
+    def _walaa_parse_used_gifts(self):
+        """Return the usedGifts list from the stored JSON, or empty list."""
+        if not self.used_gifts:
+            return []
+        try:
+            gifts = json.loads(self.used_gifts)
+            return gifts if isinstance(gifts, list) else []
+        except (json.JSONDecodeError, TypeError):
+            return []
+
     def _walaa_build_pos_payload(self):
         self.ensure_one()
         lines = []
@@ -89,6 +139,8 @@ class PosOrder(models.Model):
                 }
             )
 
+        used_gifts = self._walaa_parse_used_gifts()
+
         return {
             "event": "pos_order_paid",
             "order": {
@@ -105,13 +157,14 @@ class PosOrder(models.Model):
                     "id": self.partner_id.id if self.partner_id else False,
                     "name": self.partner_id.name if self.partner_id else False,
                     "email": self.partner_id.email if self.partner_id else False,
-                    "phone": self.partner_id.phone if self.partner_id else False,
+                    "phone": _clean_phone(self.partner_id.phone) if self.partner_id else False,
                 },
                 "currency": self.currency_id.name,
                 "amount_tax": self.amount_tax,
                 "amount_total": self.amount_total,
                 "amount_paid": self.amount_paid,
                 "amount_return": self.amount_return,
+                "usedGifts": used_gifts,
                 "lines": lines,
             },
         }

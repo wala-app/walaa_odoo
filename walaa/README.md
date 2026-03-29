@@ -10,6 +10,7 @@ This module connects Odoo Sales and Products with your Walaa app.
 - Adds a manual button in Odoo settings to push all products to Walaa in one request.
 - Sends confirmed Sales Orders and paid PoS Orders to Walaa immediately.
 - Uses fixed outbound paths (not editable): `/api/odoo/orders` and `/api/odoo/products/sync`.
+- **POS Gifts**: When a customer with a phone number is selected in the POS, fetches available Walaa rewards/gifts and lets the cashier select one or more to attach to the order.
 
 ## Requirements
 
@@ -143,6 +144,60 @@ If brand token is missing:
 - Order processing is not blocked.
 - Order push is skipped.
 
+#### PoS order payload example
+
+```json
+{
+  "event": "pos_order_paid",
+  "order": {
+    "id": 42,
+    "name": "POS/001",
+    "state": "paid",
+    "customer": {
+      "id": 7,
+      "name": "John Doe",
+      "email": "john@example.com",
+      "phone": "+96891234567"
+    },
+    "amount_total": 15.0,
+    "usedGifts": [
+      {
+        "id": 101,
+        "name": "Free Coffee",
+        "rewardId": 5,
+        "type": 1,
+        "expireDate": "2026-06-01T00:00:00"
+      }
+    ],
+    "lines": [...]
+  }
+}
+```
+
+### 3) POS Customer Gifts
+
+When a customer with a phone number is selected in the POS:
+
+1. Odoo calls the Walaa API to fetch available gifts for that customer.
+2. A dialog pops up allowing the cashier to select one or more gifts.
+3. Selected gifts are attached to the order and sent in the `usedGifts` field when the order is synced.
+
+Walaa API used:
+
+- Method: `GET`
+- URL: `<walaa_base_url>/api/odoo/customers/{customer_phone}/gifts`
+- Header: `X-Brand-Token: <brand_token>`
+- Path param: `customer_phone` (international phone, e.g. `+96891234567`)
+
+Phone numbers are automatically cleaned (spaces, dashes, parentheses removed) before sending to the API.
+
+Internal Odoo endpoint (POS frontend -> Odoo backend):
+
+- Method: `POST` (JSON-RPC)
+- URL: `/walaa/pos/customer_gifts`
+- Auth: Odoo session (logged-in POS user)
+- Params: `{ "customer_phone": "+96891234567" }`
+
 ## Delivery Behavior
 
 - No cron is used for sending requests.
@@ -182,7 +237,13 @@ Possible responses from `POST /walaa/sync/products`:
 3. **Product trigger returns 404 unknown token**
    - Verify `brand_token` exists in company `Walaa Brand Token`.
 
-4. **Install/upgrade still fails after code fix**
+4. **POS gift dialog not appearing**
+   - Ensure customer has a phone number set (international format, e.g. `+968...`).
+   - Check browser console for `[Walaa]` log messages.
+   - Verify Walaa connector is enabled and configured for the company.
+   - Check Odoo server logs for API errors.
+
+5. **Install/upgrade still fails after code fix**
    - Restart Odoo service.
    - Update Apps List from Odoo Apps menu.
    - Upgrade module again: `odoo-bin -d <database_name> -u walaa --addons-path=<your_addons_paths>`.

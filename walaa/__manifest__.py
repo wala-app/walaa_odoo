@@ -9,6 +9,12 @@
     "data": [
         "views/res_config_settings_views.xml"
     ],
+    "assets": {
+        "point_of_sale._assets_pos": [
+            "walaa/static/src/js/walaa_pos.js",
+            "walaa/static/src/xml/walaa_pos.xml",
+        ],
+    },
     "installable": True,
     "application": False,
 }

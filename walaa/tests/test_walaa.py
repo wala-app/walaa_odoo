@@ -153,3 +153,56 @@ class TestWalaa(SavepointCase):
         self.assertIn("image_base64", product)
         self.assertEqual(product["cost"], 75.0)
         self.assertEqual(action["type"], "ir.actions.client")
+
+    def test_pos_payload_includes_gift_when_set(self):
+        """Verify that _walaa_build_pos_payload includes gift data."""
+        pos_config = self.env["pos.config"].create({"name": "Walaa Test POS"})
+        session = self.env["pos.session"].create(
+            {"config_id": pos_config.id, "user_id": self.env.uid}
+        )
+        order = self.env["pos.order"].create(
+            {
+                "session_id": session.id,
+                "partner_id": self.partner.id,
+                "company_id": self.company.id,
+                "lines": [
+                    (
+                        0,
+                        0,
+                        {
+                            "product_id": self.product.id,
+                            "full_product_name": self.product.name,
+                            "qty": 1,
+                            "price_unit": 100.0,
+                            "price_subtotal": 100.0,
+                            "price_subtotal_incl": 100.0,
+                        },
+                    )
+                ],
+                "amount_total": 100.0,
+                "amount_tax": 0.0,
+                "amount_paid": 100.0,
+                "amount_return": 0.0,
+            }
+        )
+
+        # Without gift
+        payload = order._walaa_build_pos_payload()
+        self.assertIsNone(payload["order"]["gift"])
+
+        # With gift
+        order.write({"walaa_gift_id": 42, "walaa_gift_reward_id": 7})
+        payload = order._walaa_build_pos_payload()
+        self.assertEqual(payload["order"]["gift"]["id"], 42)
+        self.assertEqual(payload["order"]["gift"]["reward_id"], 7)
+
+    def test_gifts_controller_returns_empty_when_disabled(self):
+        """Controller returns empty gifts list when walaa is disabled."""
+        from odoo.addons.walaa.controllers.main import WalaaConnectorController
+
+        self.company.walaa_enabled = False
+        controller = WalaaConnectorController()
+        # Simulate the method call (no HTTP context needed)
+        result = controller.get_customer_gifts(customer_phone="+96890000000")
+        self.assertEqual(result["gifts"], [])
+        self.assertIn("disabled", result.get("error", ""))

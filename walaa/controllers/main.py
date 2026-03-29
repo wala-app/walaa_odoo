@@ -1,8 +1,14 @@
 import json
+import logging
+import re
+
+import requests
 
 from odoo import http
 from odoo.exceptions import ValidationError
 from odoo.http import request
+
+_logger = logging.getLogger(__name__)
 
 
 class WalaaConnectorController(http.Controller):
@@ -86,3 +92,41 @@ class WalaaConnectorController(http.Controller):
 
         response_payload.update({"status": "sent"})
         return request.make_json_response(response_payload, status=200)
+
+    @http.route(
+        "/walaa/pos/customer_gifts",
+        type="json",
+        auth="user",
+        methods=["POST"],
+    )
+    def get_customer_gifts(self, customer_phone, **kwargs):
+        """Fetch Walaa rewards/gifts for a customer by phone number."""
+        company = request.env.company
+        if not company.walaa_enabled:
+            return {"gifts": [], "count": 0, "error": "Walaa connector is disabled."}
+        if not company.walaa_brand_token or not company.walaa_base_url:
+            return {"gifts": [], "count": 0, "error": "Walaa is not fully configured."}
+
+        customer_uid = re.sub(r"[\s\-\(\)]", "", customer_phone or "")
+        if not customer_uid:
+            return {"gifts": [], "count": 0, "error": "No phone number provided."}
+
+        base_url = company.walaa_base_url.strip().rstrip("/")
+        url = f"{base_url}/api/odoo/customers/{customer_uid}/gifts"
+        headers = {"X-Brand-Token": company.walaa_brand_token}
+
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "gifts": data.get("userGifts", []),
+                    "count": data.get("count", 0),
+                }
+            _logger.warning(
+                "Walaa gifts API returned %s for phone %s", response.status_code, customer_uid
+            )
+            return {"gifts": [], "count": 0, "error": f"API error {response.status_code}"}
+        except Exception as exc:
+            _logger.exception("Walaa gifts API call failed for phone %s", customer_uid)
+            return {"gifts": [], "count": 0, "error": str(exc)}
