@@ -1,7 +1,7 @@
 {
     "name": "Walaa",
     "summary": "Sync products and confirmed orders from Odoo to Walaa",
-    "version": "18.0.2.3.0",
+    "version": "18.0.2.3.5",
     "category": "Sales",
     "author": "Walaa",
     "license": "LGPL-3",

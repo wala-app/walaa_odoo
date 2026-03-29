@@ -4,10 +4,13 @@ console.log("[Walaa] POS gift module loading...");
 import { patch } from "@web/core/utils/patch";
 import { PosOrder } from "@point_of_sale/app/models/pos_order";
 import { ProductScreen } from "@point_of_sale/app/screens/product_screen/product_screen";
+import { ControlButtons } from "@point_of_sale/app/screens/product_screen/control_buttons/control_buttons";
 import { Component, useState, useEffect } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 import { usePos } from "@point_of_sale/app/store/pos_hook";
 import { Dialog } from "@web/core/dialog/dialog";
+
+const SKIP_REWARD = "__SKIP_REWARD__";
 
 /**
  * Strip spaces, dashes, parentheses from phone so it arrives clean
@@ -52,12 +55,91 @@ function askProductForGift(dialog, gift, productChoices) {
             giftName: gift?.name || "Gift",
             products: productChoices,
             onConfirm: (product) => resolve(product || false),
+            onSkip: () => resolve(SKIP_REWARD),
             close: () => resolve(false),
         });
     });
 }
 
-async function mapSelectedGiftsToProducts(dialog, order, selectedGifts) {
+async function fetchCustomerGifts(customerPhone) {
+    const response = await fetch("/walaa/pos/customer_gifts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "call",
+            params: { customer_phone: customerPhone },
+        }),
+    });
+    const data = await response.json();
+    return data?.result || null;
+}
+
+function openGiftSelectionDialog(dialog, pos, gifts) {
+    const order = pos.get_order();
+    if (!order || !Array.isArray(gifts) || !gifts.length) {
+        return;
+    }
+    dialog.add(WalaaGiftDialog, {
+        gifts,
+        alreadySelected: order?.walaaUsedGifts || [],
+        onConfirm: async (chosen) => {
+            const currentOrder = pos.get_order();
+            if (!currentOrder) {
+                return;
+            }
+            const mappedGifts = await mapSelectedGiftsToProducts(
+                dialog,
+                currentOrder,
+                chosen,
+                currentOrder.walaaUsedGifts || []
+            );
+            if (mappedGifts === false) {
+                return;
+            }
+            currentOrder.walaaUsedGifts = mappedGifts;
+            if (typeof currentOrder.save_to_db === "function") {
+                currentOrder.save_to_db();
+            }
+            if (typeof currentOrder.trigger === "function") {
+                currentOrder.trigger("change");
+            }
+            console.log("[Walaa] Gifts selected:", mappedGifts);
+        },
+    });
+}
+
+async function showCustomerGifts({
+    phone,
+    pos,
+    dialog,
+    notification,
+    notifyIfEmpty = false,
+}) {
+    if (!phone) {
+        return;
+    }
+    try {
+        const result = await fetchCustomerGifts(phone);
+        console.log("[Walaa] Gifts response:", result);
+        if (result && Array.isArray(result.gifts) && result.gifts.length > 0) {
+            openGiftSelectionDialog(dialog, pos, result.gifts);
+            return;
+        }
+        if (notifyIfEmpty && notification?.add) {
+            notification.add("No Walaa gifts available for this customer.", {
+                type: "info",
+            });
+        }
+    } catch (err) {
+        console.error("[Walaa] Failed to fetch gifts:", err);
+        if (notifyIfEmpty && notification?.add) {
+            notification.add("Failed to fetch Walaa gifts.", { type: "danger" });
+        }
+    }
+}
+
+async function mapSelectedGiftsToProducts(dialog, order, selectedGifts, alreadyMapped = []) {
     const productChoices = getOrderProductChoices(order);
     if (!selectedGifts?.length) {
         return [];
@@ -70,9 +152,32 @@ async function mapSelectedGiftsToProducts(dialog, order, selectedGifts) {
         }));
     }
 
+    const choiceByProductId = new Map(
+        productChoices.map((choice) => [String(choice.usedOnProductId), choice])
+    );
+    const mappedByGiftId = new Map(
+        (alreadyMapped || []).map((gift) => [String(gift.id), gift])
+    );
+
     const mapped = [];
     const usedProductIds = new Set();
     for (const gift of selectedGifts) {
+        const existing = mappedByGiftId.get(String(gift.id));
+        if (existing?.usedOnProductId) {
+            const existingProductId = String(existing.usedOnProductId);
+            const existingChoice = choiceByProductId.get(existingProductId);
+            if (existingChoice && !usedProductIds.has(existingProductId)) {
+                usedProductIds.add(existingProductId);
+                mapped.push({
+                    ...gift,
+                    usedOnProductId: existingChoice.usedOnProductId,
+                    usedOnProductName:
+                        existing.usedOnProductName || existingChoice.usedOnProductName,
+                });
+                continue;
+            }
+        }
+
         const availableChoices = productChoices.filter(
             (choice) => !usedProductIds.has(String(choice.usedOnProductId))
         );
@@ -84,6 +189,9 @@ async function mapSelectedGiftsToProducts(dialog, order, selectedGifts) {
         }
 
         const selected = await askProductForGift(dialog, gift, availableChoices);
+        if (selected === SKIP_REWARD) {
+            continue;
+        }
         if (!selected?.usedOnProductId) {
             return false;
         }
@@ -187,6 +295,7 @@ class WalaaGiftProductDialog extends Component {
         giftName: String,
         products: Array,
         onConfirm: Function,
+        onSkip: Function,
         close: Function,
     };
 
@@ -211,7 +320,38 @@ class WalaaGiftProductDialog extends Component {
         this.props.onConfirm(selected || false);
         this.props.close();
     }
+
+    skipReward() {
+        if (typeof this.props.onSkip === "function") {
+            this.props.onSkip();
+        }
+        this.props.close();
+    }
 }
+
+patch(ControlButtons.prototype, {
+    async onClickWalaaGifts() {
+        const order = this.pos.get_order();
+        const partner = order?.get_partner?.();
+        const phone = cleanPhone(partner?.phone || partner?.mobile);
+        if (!phone) {
+            this.notification.add("Select a customer with phone number first.", {
+                type: "warning",
+            });
+            return;
+        }
+        await showCustomerGifts({
+            phone,
+            pos: this.pos,
+            dialog: this.dialog,
+            notification: this.notification,
+            notifyIfEmpty: true,
+        });
+        if (typeof this.props?.close === "function") {
+            this.props.close();
+        }
+    },
+});
 
 // ─── Patch ProductScreen to watch for partner changes & show gift popup ─────
 
@@ -221,6 +361,7 @@ patch(ProductScreen.prototype, {
 
         const pos = usePos();
         const dialog = useService("dialog");
+        const notification = useService("notification");
 
         let lastPartnerId = null;
 
@@ -237,50 +378,11 @@ patch(ProductScreen.prototype, {
                 if (!phone) return;
 
                 console.log("[Walaa] Customer selected with phone:", phone);
-
-                fetch("/walaa/pos/customer_gifts", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        jsonrpc: "2.0",
-                        method: "call",
-                        params: { customer_phone: phone },
-                    }),
-                })
-                .then((r) => r.json())
-                .then((data) => data.result)
-                .then((result) => {
-                    console.log("[Walaa] Gifts response:", result);
-                    if (result && Array.isArray(result.gifts) && result.gifts.length > 0) {
-                        const order = pos.get_order();
-                        dialog.add(WalaaGiftDialog, {
-                            gifts: result.gifts,
-                            alreadySelected: order?.walaaUsedGifts || [],
-                            onConfirm: async (chosen) => {
-                                const currentOrder = pos.get_order();
-                                if (currentOrder) {
-                                    const mappedGifts = await mapSelectedGiftsToProducts(
-                                        dialog,
-                                        currentOrder,
-                                        chosen
-                                    );
-                                    if (mappedGifts === false) {
-                                        return;
-                                    }
-                                    currentOrder.walaaUsedGifts = mappedGifts;
-                                    if (typeof currentOrder.save_to_db === "function") {
-                                        currentOrder.save_to_db();
-                                    }
-                                    if (typeof currentOrder.trigger === "function") {
-                                        currentOrder.trigger("change");
-                                    }
-                                    console.log("[Walaa] Gifts selected:", mappedGifts);
-                                }
-                            },
-                        });
-                    }
-                }).catch((err) => {
-                    console.error("[Walaa] Failed to fetch gifts:", err);
+                showCustomerGifts({
+                    phone,
+                    pos,
+                    dialog,
+                    notification,
                 });
             },
             () => [pos.get_order()?.get_partner()]
