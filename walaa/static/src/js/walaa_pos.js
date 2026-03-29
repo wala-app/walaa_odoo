@@ -24,25 +24,26 @@ patch(PosOrder.prototype, {
     setup() {
         super.setup(...arguments);
         this.walaaUsedGifts = []; // array of gift objects
-    },
-
-    export_as_JSON() {
-        const json = super.export_as_JSON(...arguments);
-        if (this.walaaUsedGifts && this.walaaUsedGifts.length > 0) {
-            json.used_gifts = JSON.stringify(this.walaaUsedGifts);
-        }
-        return json;
-    },
-
-    init_from_JSON(json) {
-        super.init_from_JSON(...arguments);
-        if (json.used_gifts) {
+        const vals = arguments[0] || {};
+        if (vals.used_gifts) {
             try {
-                this.walaaUsedGifts = JSON.parse(json.used_gifts);
+                const parsed = JSON.parse(vals.used_gifts);
+                this.walaaUsedGifts = Array.isArray(parsed) ? parsed : [];
             } catch {
                 this.walaaUsedGifts = [];
             }
         }
+    },
+
+    serialize() {
+        const json = super.serialize(...arguments);
+        if (this.walaaUsedGifts && this.walaaUsedGifts.length > 0) {
+            json.used_gifts = JSON.stringify(this.walaaUsedGifts);
+        } else {
+            json.used_gifts = false;
+        }
+        console.log("[Walaa] serialize used_gifts:", json.used_gifts);
+        return json;
     },
 });
 
@@ -147,6 +148,12 @@ patch(ProductScreen.prototype, {
                                 const currentOrder = pos.get_order();
                                 if (currentOrder) {
                                     currentOrder.walaaUsedGifts = chosen;
+                                    if (typeof currentOrder.save_to_db === "function") {
+                                        currentOrder.save_to_db();
+                                    }
+                                    if (typeof currentOrder.trigger === "function") {
+                                        currentOrder.trigger("change");
+                                    }
                                     console.log("[Walaa] Gifts selected:", chosen);
                                 }
                             },

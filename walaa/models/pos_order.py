@@ -23,6 +23,21 @@ class PosOrder(models.Model):
     walaa_last_error = fields.Text(string="Walaa Last Error", copy=False)
     used_gifts = fields.Text(string="Walaa Used Gifts", copy=False)
 
+    @api.model
+    def _order_fields(self, ui_order):
+        """Persist used gifts from POS JSON before any sync is triggered."""
+        vals = super()._order_fields(ui_order)
+        used_gifts = ui_order.get("used_gifts") or ui_order.get("usedGifts")
+        if isinstance(used_gifts, list):
+            used_gifts = json.dumps(used_gifts)
+        if used_gifts:
+            vals["used_gifts"] = used_gifts
+            _logger.info(
+                "Walaa POS used_gifts received from UI for order %s",
+                ui_order.get("name") or ui_order.get("uid"),
+            )
+        return vals
+
     def write(self, vals):
         result = super().write(vals)
         if "state" in vals:
@@ -32,38 +47,8 @@ class PosOrder(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         orders = super().create(vals_list)
-        if not self.env.context.get("walaa_skip_sync"):
-            orders._walaa_try_send_ready_orders()
+        orders._walaa_try_send_ready_orders()
         return orders
-
-    @classmethod
-    def create_from_ui(cls, orders, draft=False):
-        """Override to ensure gift fields are set before the Walaa sync runs."""
-        orders_with_gifts = {}
-        for i, order in enumerate(orders):
-            data = order.get("data", {})
-            used_gifts = data.get("used_gifts")
-            if used_gifts:
-                orders_with_gifts[i] = used_gifts
-
-        if orders_with_gifts:
-            ctx = {**cls.env.context, "walaa_skip_sync": True}
-            result = super(PosOrder, cls.with_context(ctx)).create_from_ui(orders, draft)
-
-            for i, gifts_json in orders_with_gifts.items():
-                if i >= len(result):
-                    continue
-                entry = result[i]
-                order_id = entry.get("id") if isinstance(entry, dict) else entry
-                if not order_id:
-                    continue
-                order_record = cls.env["pos.order"].browse(order_id)
-                order_record.sudo().write({"used_gifts": gifts_json})
-                order_record._walaa_try_send_ready_orders()
-
-            return result
-
-        return super().create_from_ui(orders, draft)
 
     def _walaa_try_send_ready_orders(self):
         ready_states = {"paid", "done", "invoiced"}

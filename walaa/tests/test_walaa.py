@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 from odoo.tests.common import SavepointCase
@@ -154,8 +155,8 @@ class TestWalaa(SavepointCase):
         self.assertEqual(product["cost"], 75.0)
         self.assertEqual(action["type"], "ir.actions.client")
 
-    def test_pos_payload_includes_gift_when_set(self):
-        """Verify that _walaa_build_pos_payload includes gift data."""
+    def test_pos_payload_includes_used_gifts_when_set(self):
+        """Verify that _walaa_build_pos_payload includes usedGifts data."""
         pos_config = self.env["pos.config"].create({"name": "Walaa Test POS"})
         session = self.env["pos.session"].create(
             {"config_id": pos_config.id, "user_id": self.env.uid}
@@ -186,15 +187,27 @@ class TestWalaa(SavepointCase):
             }
         )
 
-        # Without gift
+        # Without gifts
         payload = order._walaa_build_pos_payload()
-        self.assertIsNone(payload["order"]["gift"])
+        self.assertEqual(payload["order"]["usedGifts"], [])
 
-        # With gift
-        order.write({"walaa_gift_id": 42, "walaa_gift_reward_id": 7})
+        # With gifts
+        order.write(
+            {
+                "used_gifts": json.dumps(
+                    [
+                        {
+                            "id": 42,
+                            "rewardId": 7,
+                            "name": "Reward 42",
+                        }
+                    ]
+                )
+            }
+        )
         payload = order._walaa_build_pos_payload()
-        self.assertEqual(payload["order"]["gift"]["id"], 42)
-        self.assertEqual(payload["order"]["gift"]["reward_id"], 7)
+        self.assertEqual(payload["order"]["usedGifts"][0]["id"], 42)
+        self.assertEqual(payload["order"]["usedGifts"][0]["rewardId"], 7)
 
     def test_gifts_controller_returns_empty_when_disabled(self):
         """Controller returns empty gifts list when walaa is disabled."""
