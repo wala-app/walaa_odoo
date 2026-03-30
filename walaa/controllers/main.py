@@ -12,6 +12,48 @@ _logger = logging.getLogger(__name__)
 
 
 class WalaaConnectorController(http.Controller):
+    @staticmethod
+    def _normalize_phone(value):
+        return re.sub(r"[\s\-\(\)]", "", value or "")
+
+    def _find_partner_by_phone(self, raw_phone):
+        partner_model = request.env["res.partner"].sudo()
+        clean_phone = self._normalize_phone(raw_phone)
+        if not clean_phone:
+            return partner_model.browse()
+
+        candidates = [clean_phone, raw_phone]
+        candidates = [value for value in candidates if value]
+        # Exact match on phone/mobile first (fast path)
+        partner = partner_model.search(
+            [
+                "|",
+                ("phone", "in", candidates),
+                ("mobile", "in", candidates),
+            ],
+            limit=1,
+            order="id asc",
+        )
+        if partner:
+            return partner
+
+        # Fallback: normalized compare in Python when existing values contain spaces/symbols.
+        sample = partner_model.search(
+            [
+                "|",
+                ("phone", "!=", False),
+                ("mobile", "!=", False),
+            ],
+            limit=1000,
+            order="id desc",
+        )
+        for rec in sample:
+            if self._normalize_phone(rec.phone) == clean_phone:
+                return rec
+            if self._normalize_phone(rec.mobile) == clean_phone:
+                return rec
+        return partner_model.browse()
+
     @http.route(
         "/walaa/sync/products",
         type="http",
@@ -130,3 +172,96 @@ class WalaaConnectorController(http.Controller):
         except Exception as exc:
             _logger.exception("Walaa gifts API call failed for phone %s", customer_uid)
             return {"gifts": [], "count": 0, "error": str(exc)}
+
+    @http.route(
+        "/walaa/pos/order_requests_today",
+        type="json",
+        auth="user",
+        methods=["POST"],
+    )
+    def get_order_requests_today(self, **kwargs):
+        del kwargs
+        company = request.env.company
+        if not company.walaa_enabled:
+            return {
+                "orderRequests": [],
+                "count": 0,
+                "error": "Walaa connector is disabled.",
+            }
+        if not company.walaa_brand_token or not company.walaa_base_url:
+            return {
+                "orderRequests": [],
+                "count": 0,
+                "error": "Walaa is not fully configured.",
+            }
+
+        base_url = company.walaa_base_url.strip().rstrip("/")
+        url = f"{base_url}/api/odoo/order-requests/today"
+        headers = {"X-Brand-Token": company.walaa_brand_token}
+
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                requests_list = data.get("orderRequests", [])
+                return {
+                    "orderRequests": requests_list if isinstance(requests_list, list) else [],
+                    "count": data.get("count", 0),
+                }
+            return {
+                "orderRequests": [],
+                "count": 0,
+                "error": f"API error {response.status_code}",
+            }
+        except Exception as exc:
+            _logger.exception("Walaa order requests API call failed")
+            return {"orderRequests": [], "count": 0, "error": str(exc)}
+
+    @http.route(
+        "/walaa/pos/order_request_select",
+        type="json",
+        auth="user",
+        methods=["POST"],
+    )
+    def select_order_request(self, order_request, **kwargs):
+        del kwargs
+        if not isinstance(order_request, dict):
+            return {"error": "Invalid order request payload."}
+
+        phone = self._normalize_phone(order_request.get("phoneNumber"))
+        name = (order_request.get("customerName") or "").strip() or "Walaa Customer"
+
+        if not phone:
+            return {"error": "Selected request has no phone number."}
+
+        partner = self._find_partner_by_phone(phone)
+        created = False
+        if not partner:
+            partner = request.env["res.partner"].sudo().create(
+                {
+                    "name": name,
+                    "phone": phone,
+                }
+            )
+            created = True
+        else:
+            write_vals = {}
+            if not partner.name and name:
+                write_vals["name"] = name
+            if not partner.phone and phone:
+                write_vals["phone"] = phone
+            if write_vals:
+                partner.sudo().write(write_vals)
+
+        partner_payload = {
+            "id": partner.id,
+            "name": partner.name,
+            "display_name": partner.display_name or partner.name,
+            "phone": partner.phone,
+            "mobile": partner.mobile,
+        }
+        return {
+            "partner": partner_payload,
+            "created": created,
+            "orderRequest": order_request,
+        }

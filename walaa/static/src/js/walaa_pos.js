@@ -157,6 +157,65 @@ async function fetchCustomerGifts(customerPhone) {
     return data?.result || null;
 }
 
+async function fetchOrderRequestsToday() {
+    const response = await fetch("/walaa/pos/order_requests_today", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "call",
+            params: {},
+        }),
+    });
+    const data = await response.json();
+    return data?.result || null;
+}
+
+async function resolveOrderRequestSelection(orderRequest) {
+    const response = await fetch("/walaa/pos/order_request_select", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "call",
+            params: { order_request: orderRequest },
+        }),
+    });
+    const data = await response.json();
+    return data?.result || null;
+}
+
+function askOrderRequest(dialog, orderRequests) {
+    return new Promise((resolve) => {
+        dialog.add(WalaaOrderRequestDialog, {
+            requests: orderRequests,
+            onConfirm: (selected) => resolve(selected || false),
+            close: () => resolve(false),
+        });
+    });
+}
+
+function getPosPartnerById(pos, partnerId) {
+    if (!partnerId) return null;
+    if (pos?.models?.["res.partner"]?.get) {
+        const fromModel = pos.models["res.partner"].get(partnerId);
+        if (fromModel) return fromModel;
+    }
+    if (pos?.db?.get_partner_by_id) {
+        const fromDb = pos.db.get_partner_by_id(partnerId);
+        if (fromDb) return fromDb;
+    }
+    return null;
+}
+
+function upsertPartnerInPosCache(pos, partnerPayload) {
+    if (!partnerPayload?.id) return null;
+    if (pos?.db?.add_partners) {
+        pos.db.add_partners([partnerPayload]);
+    }
+    return getPosPartnerById(pos, partnerPayload.id) || partnerPayload;
+}
+
 function openGiftSelectionDialog(dialog, pos, gifts) {
     const order = pos.get_order();
     if (!order || !Array.isArray(gifts) || !gifts.length) {
@@ -444,6 +503,52 @@ class WalaaGiftProductDialog extends Component {
     }
 }
 
+class WalaaOrderRequestDialog extends Component {
+    static template = "walaa.WalaaOrderRequestDialog";
+    static components = { Dialog };
+    static props = {
+        requests: Array,
+        onConfirm: Function,
+        close: Function,
+    };
+
+    setup() {
+        const first = this.props.requests?.[0];
+        this.state = useState({
+            selectedKey: first ? this.requestKey(first) : null,
+        });
+    }
+
+    requestKey(req) {
+        return String(req?.documentId || req?.orderRequestId || req?.uid || "");
+    }
+
+    isSelected(req) {
+        return this.state.selectedKey === this.requestKey(req);
+    }
+
+    choose(req) {
+        this.state.selectedKey = this.requestKey(req);
+    }
+
+    formatDatetime(value) {
+        if (!value) return "-";
+        try {
+            return new Date(value).toLocaleString();
+        } catch {
+            return value;
+        }
+    }
+
+    confirm() {
+        const selected = (this.props.requests || []).find(
+            (req) => this.requestKey(req) === this.state.selectedKey
+        );
+        this.props.onConfirm(selected || false);
+        this.props.close();
+    }
+}
+
 patch(ControlButtons.prototype, {
     async onClickWalaaGifts() {
         const order = this.pos.get_order();
@@ -464,6 +569,82 @@ patch(ControlButtons.prototype, {
         });
         if (typeof this.props?.close === "function") {
             this.props.close();
+        }
+    },
+
+    async onClickWalaaOrderRequests() {
+        try {
+            const payload = await fetchOrderRequestsToday();
+            if (!payload) {
+                this.notification.add("Failed to load order requests.", {
+                    type: "danger",
+                });
+                return;
+            }
+            if (payload.error) {
+                this.notification.add(payload.error, { type: "danger" });
+                return;
+            }
+            const requests = Array.isArray(payload.orderRequests) ? payload.orderRequests : [];
+            if (!requests.length) {
+                this.notification.add("No Walaa order requests for today.", {
+                    type: "info",
+                });
+                return;
+            }
+
+            const selected = await askOrderRequest(this.dialog, requests);
+            if (!selected) {
+                return;
+            }
+
+            const resolved = await resolveOrderRequestSelection(selected);
+            if (!resolved) {
+                this.notification.add("Failed to resolve selected request.", {
+                    type: "danger",
+                });
+                return;
+            }
+            if (resolved.error) {
+                this.notification.add(resolved.error, { type: "danger" });
+                return;
+            }
+
+            const order = this.pos.get_order();
+            if (!order) {
+                this.notification.add("No active order.", { type: "warning" });
+                return;
+            }
+            const partner = upsertPartnerInPosCache(this.pos, resolved.partner);
+            if (!partner) {
+                this.notification.add("Customer could not be assigned.", {
+                    type: "danger",
+                });
+                return;
+            }
+
+            order.set_partner(partner);
+            if (typeof order.save_to_db === "function") {
+                order.save_to_db();
+            }
+            if (typeof order.trigger === "function") {
+                order.trigger("change");
+            }
+
+            this.notification.add(
+                resolved.created
+                    ? "Customer created and assigned to order."
+                    : "Customer assigned to order.",
+                { type: "success" }
+            );
+            if (typeof this.props?.close === "function") {
+                this.props.close();
+            }
+        } catch (err) {
+            console.error("[Walaa] Failed handling order requests action:", err);
+            this.notification.add("Failed to process order request.", {
+                type: "danger",
+            });
         }
     },
 });

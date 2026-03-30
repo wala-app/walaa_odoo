@@ -135,6 +135,91 @@
         </Dialog>
 </t>
 
+    <t t-name="walaa.WalaaOrderRequestDialog">
+        <Dialog title="'Walaa Order Requests (Today)'" size="'lg'">
+            <div class="walaa-gift-list">
+                <t t-if="props.requests.length === 0">
+                    <p class="text-center text-muted py-4">No order requests available.</p>
+                </t>
+
+                <div
+                    t-foreach="props.requests"
+                    t-as="req"
+                    t-key="requestKey(req)"
+                    class="walaa-gift-item d-flex align-items-start p-3 mb-2 border rounded"
+                    t-att-class="{
+                        'border-primary bg-primary text-white': isSelected(req),
+                        'border-secondary': !isSelected(req)
+                    }"
+                    style="cursor:pointer"
+                    t-on-click="() => this.choose(req)">
+                    <div class="form-check me-3 mt-1">
+                        <input
+                            type="radio"
+                            class="form-check-input"
+                            name="walaa-order-request"
+                            t-att-id="'walaa-order-request-' + requestKey(req)"
+                            t-att-checked="isSelected(req)"/>
+                    </div>
+
+                    <div class="flex-grow-1">
+                        <div class="d-flex justify-content-between flex-wrap gap-2">
+                            <div>
+                                <label
+                                    class="mb-0 fw-semibold"
+                                    style="cursor:pointer"
+                                    t-att-for="'walaa-order-request-' + requestKey(req)">
+                                    <t t-esc="req.customerName || req.uid || 'Unknown Customer'"/>
+                                </label>
+                                <small
+                                    class="d-block"
+                                    t-att-class="{
+                                        'text-white-50': isSelected(req),
+                                        'text-muted': !isSelected(req)
+                                    }">
+                                    Phone: <t t-esc="req.phoneNumber || '-'"/>
+                                </small>
+                                <small
+                                    class="d-block"
+                                    t-att-class="{
+                                        'text-white-50': isSelected(req),
+                                        'text-muted': !isSelected(req)
+                                    }">
+                                    Created: <t t-esc="formatDatetime(req.createdAt)"/>
+                                </small>
+                            </div>
+                            <div class="text-end">
+                                <span class="badge bg-secondary">
+                                    <t t-esc="req.status || 'pending'"/>
+                                </span>
+                                <small
+                                    class="d-block mt-2"
+                                    t-att-class="{
+                                        'text-white-50': isSelected(req),
+                                        'text-muted': !isSelected(req)
+                                    }">
+                                    Doc: <t t-esc="req.documentId || '-'"/>
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <t t-set-slot="footer">
+                <button class="btn btn-secondary" t-on-click="() => props.close()">
+                    Cancel
+                </button>
+                <button
+                    class="btn btn-primary ms-2"
+                    t-on-click="confirm"
+                    t-att-disabled="!state.selectedKey">
+                    <i class="fa fa-check me-1"/>
+                    Select Request
+                </button>
+            </t>
+        </Dialog>
+    </t>
+
     <t t-name="walaa.ControlButtonsWalaaGifts"
        t-inherit="point_of_sale.ControlButtons"
        t-inherit-mode="extension">
@@ -142,6 +227,10 @@
             <button class="btn btn-secondary btn-lg py-5" t-on-click="onClickWalaaGifts">
                 <i class="fa fa-gift me-1"/>
                 Walaa Gifts
+            </button>
+            <button class="btn btn-secondary btn-lg py-5" t-on-click="onClickWalaaOrderRequests">
+                <i class="fa fa-list me-1"/>
+                Walaa Order Requests
             </button>
         </xpath>
     </t>
