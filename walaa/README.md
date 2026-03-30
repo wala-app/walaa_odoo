@@ -260,6 +260,77 @@ Discount object (present only for type `2`):
 | `productIds` has no match in the order | Gift is silently skipped |
 | Only one matching product in the order | Dialog is shown with that single product |
 
+### 4) POS Order Requests
+
+The cashier can open a list of today's Walaa order requests directly from the POS control panel.
+
+#### Flow
+
+1. Cashier taps **Order Requests** in the POS control buttons.
+2. Odoo fetches today's requests from the Walaa API and displays them in a dialog.
+3. Cashier selects one request and taps **Apply to Order**.
+4. Odoo searches for a `res.partner` matching the request's phone number:
+   - **Found** — the existing customer is set on the current order.
+   - **Not found** — a new customer is created with the provided name and phone number, then set on the order.
+5. The `documentId` of the selected request is stored on the order and included in the order payload sent to Walaa.
+
+#### Walaa API — fetch today's order requests
+
+- Method: `GET`
+- URL: `<walaa_base_url>/api/odoo/order-requests/today`
+- Header: `X-Brand-Token: <brand_token>`
+
+Success response (`200`):
+
+```json
+{
+  "count": 2,
+  "orderRequests": [
+    {
+      "documentId": "abc123",
+      "orderRequestId": 10,
+      "uid": "+96891234567",
+      "customerName": "Ahmed Al-Farsi",
+      "phoneNumber": "+96891234567",
+      "branchId": 3,
+      "status": "pending",
+      "createdAt": "2026-03-30T09:15:00",
+      "ttl": "2026-03-30T12:00:00"
+    }
+  ]
+}
+```
+
+#### Internal Odoo endpoints (POS frontend → Odoo backend)
+
+| URL | Purpose |
+|-----|---------|
+| `POST /walaa/pos/order_requests` | Proxies the Walaa API and returns the list to the POS |
+| `POST /walaa/pos/resolve_customer` | Finds or creates a `res.partner` by phone; returns `id`, `name`, `phone`, `is_new` |
+
+#### Order payload — `documentId` field
+
+When an order request is selected, the linked `documentId` is serialized on the POS order as `walaa_order_request_document_id` and included in the order sync payload sent to Walaa. It is `false` when no request was linked.
+
+```json
+{
+  "event": "pos_order_paid",
+  "order": {
+    "id": 42,
+    "walaa_order_request_document_id": "abc123",
+    ...
+  }
+}
+```
+
+#### Status badge colors in the dialog
+
+| Status | Color |
+|--------|-------|
+| `confirmed` | Green |
+| `pending` | Yellow |
+| Any other | Grey |
+
 ## Delivery Behavior
 
 - No cron is used for sending requests.
