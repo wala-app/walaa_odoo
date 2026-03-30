@@ -138,12 +138,20 @@
     <t t-name="walaa.WalaaOrderRequestDialog">
         <Dialog title="'Walaa Order Requests (Today)'" size="'lg'">
             <div class="walaa-gift-list">
-                <t t-if="props.requests.length === 0">
+                <div class="mb-3">
+                    <input
+                        type="text"
+                        class="form-control"
+                        placeholder="Search by customer name or phone number"
+                        t-on-input="onSearchInput"/>
+                </div>
+
+                <t t-if="filteredRequests.length === 0">
                     <p class="text-center text-muted py-4">No order requests available.</p>
                 </t>
 
                 <div
-                    t-foreach="props.requests"
+                    t-foreach="filteredRequests"
                     t-as="req"
                     t-key="requestKey(req)"
                     class="walaa-gift-item d-flex align-items-start p-3 mb-2 border rounded"
@@ -178,27 +186,6 @@
                                         'text-muted': !isSelected(req)
                                     }">
                                     Phone: <t t-esc="req.phoneNumber || '-'"/>
-                                </small>
-                                <small
-                                    class="d-block"
-                                    t-att-class="{
-                                        'text-white-50': isSelected(req),
-                                        'text-muted': !isSelected(req)
-                                    }">
-                                    Created: <t t-esc="formatDatetime(req.createdAt)"/>
-                                </small>
-                            </div>
-                            <div class="text-end">
-                                <span class="badge bg-secondary">
-                                    <t t-esc="req.status || 'pending'"/>
-                                </span>
-                                <small
-                                    class="d-block mt-2"
-                                    t-att-class="{
-                                        'text-white-50': isSelected(req),
-                                        'text-muted': !isSelected(req)
-                                    }">
-                                    Doc: <t t-esc="req.documentId || '-'"/>
                                 </small>
                             </div>
                         </div>

@@ -516,6 +516,7 @@ class WalaaOrderRequestDialog extends Component {
         const first = this.props.requests?.[0];
         this.state = useState({
             selectedKey: first ? this.requestKey(first) : null,
+            searchQuery: "",
         });
     }
 
@@ -531,6 +532,23 @@ class WalaaOrderRequestDialog extends Component {
         this.state.selectedKey = this.requestKey(req);
     }
 
+    onSearchInput(ev) {
+        this.state.searchQuery = (ev?.target?.value || "").trim().toLowerCase();
+    }
+
+    get filteredRequests() {
+        const all = this.props.requests || [];
+        const q = this.state.searchQuery;
+        if (!q) {
+            return all;
+        }
+        return all.filter((req) => {
+            const name = (req?.customerName || "").toLowerCase();
+            const phone = (req?.phoneNumber || "").toLowerCase();
+            return name.includes(q) || phone.includes(q);
+        });
+    }
+
     formatDatetime(value) {
         if (!value) return "-";
         try {
@@ -541,9 +559,17 @@ class WalaaOrderRequestDialog extends Component {
     }
 
     confirm() {
-        const selected = (this.props.requests || []).find(
+        const selected = (this.filteredRequests || []).find(
             (req) => this.requestKey(req) === this.state.selectedKey
         );
+        if (!selected) {
+            const fallback = (this.props.requests || []).find(
+                (req) => this.requestKey(req) === this.state.selectedKey
+            );
+            this.props.onConfirm(fallback || false);
+            this.props.close();
+            return;
+        }
         this.props.onConfirm(selected || false);
         this.props.close();
     }
