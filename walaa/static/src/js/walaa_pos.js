@@ -549,6 +549,15 @@ class WalaaOrderRequestDialog extends Component {
     }
 }
 
+class WalaaLoadingDialog extends Component {
+    static template = "walaa.WalaaLoadingDialog";
+    static components = { Dialog };
+    static props = {
+        title: { type: String, optional: true },
+        message: { type: String, optional: true },
+    };
+}
+
 patch(ControlButtons.prototype, {
     async onClickWalaaGifts() {
         const order = this.pos.get_order();
@@ -573,8 +582,22 @@ patch(ControlButtons.prototype, {
     },
 
     async onClickWalaaOrderRequests() {
+        const loadingRef = this.dialog.add(WalaaLoadingDialog, {
+            title: "Walaa Order Requests",
+            message: "Loading order requests...",
+        });
+        const closeLoading = () => {
+            if (typeof loadingRef === "function") {
+                loadingRef();
+                return;
+            }
+            if (loadingRef && typeof loadingRef.close === "function") {
+                loadingRef.close();
+            }
+        };
         try {
             const payload = await fetchOrderRequestsToday();
+            closeLoading();
             if (!payload) {
                 this.notification.add("Failed to load order requests.", {
                     type: "danger",
@@ -641,6 +664,7 @@ patch(ControlButtons.prototype, {
                 this.props.close();
             }
         } catch (err) {
+            closeLoading();
             console.error("[Walaa] Failed handling order requests action:", err);
             this.notification.add("Failed to process order request.", {
                 type: "danger",

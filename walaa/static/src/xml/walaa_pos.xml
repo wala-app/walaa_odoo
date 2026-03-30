@@ -220,6 +220,19 @@
         </Dialog>
     </t>
 
+    <t t-name="walaa.WalaaLoadingDialog">
+        <Dialog title="props.title || 'Loading'" size="'sm'">
+            <div class="d-flex align-items-center justify-content-center py-4">
+                <div class="spinner-border text-primary me-3" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <div class="fw-semibold">
+                    <t t-esc="props.message || 'Please wait...'"/>
+                </div>
+            </div>
+        </Dialog>
+    </t>
+
     <t t-name="walaa.ControlButtonsWalaaGifts"
        t-inherit="point_of_sale.ControlButtons"
        t-inherit-mode="extension">
