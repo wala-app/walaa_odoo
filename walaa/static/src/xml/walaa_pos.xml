@@ -37,9 +37,14 @@
                     <div class="flex-grow-1">
                         <label
                             t-att-for="'walaa-gift-' + gift.id"
-                            class="mb-0 fw-semibold"
+                            class="mb-0 fw-semibold d-flex align-items-center flex-wrap"
                             style="cursor:pointer">
                             <t t-esc="gift.name || ('Reward #' + (gift.rewardId || gift.id))"/>
+                            <span t-att-class="giftTypeBadgeClass(gift.type)">
+                                <t t-if="formatDiscountInfo(gift)">
+                                    <t t-esc="formatDiscountInfo(gift)"/>
+                                </t>
+                            </span>
                         </label>
                         <t t-if="gift.expireDate">
                             <small

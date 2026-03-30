@@ -12,6 +12,14 @@ import { Dialog } from "@web/core/dialog/dialog";
 
 const SKIP_REWARD = "__SKIP_REWARD__";
 
+// Gift / reward types as returned by the Walaa API
+const GIFT_TYPE_PRODUCT = 0;      // free 1 unit of a specific product
+const GIFT_TYPE_NON_PRODUCT = 1;  // free 1 unit, choosable among multiple products
+const GIFT_TYPE_DISCOUNT = 2;     // percentage or fixed discount on a product
+
+const DISCOUNT_TYPE_PERCENTAGE = 0;
+const DISCOUNT_TYPE_FIXED = 1;
+
 /**
  * Strip spaces, dashes, parentheses from phone so it arrives clean
  * e.g. "+968 912 34567" => "+96891234567"
@@ -44,6 +52,7 @@ function getOrderProductChoices(order) {
             label: `${productName} (x${qty})`,
             usedOnProductId: productId,
             usedOnProductName: productName,
+            qty,
         });
     }
     return choices;
@@ -59,6 +68,79 @@ function askProductForGift(dialog, gift, productChoices) {
             close: () => resolve(false),
         });
     });
+}
+
+/**
+ * Reset any discounts previously applied by Walaa gifts on the order.
+ */
+function clearGiftDiscounts(order) {
+    const applied = new Set(order.walaaGiftAppliedProductIds || []);
+    if (!applied.size) return;
+    for (const line of order.lines || []) {
+        if (applied.has(String(line.product_id?.id))) {
+            if (typeof line.set_discount === "function") {
+                line.set_discount(0);
+            }
+        }
+    }
+    order.walaaGiftAppliedProductIds = [];
+}
+
+/**
+ * Apply gift effects to matching order lines based on gift type:
+ *   PRODUCT / NON_PRODUCT → make 1 unit free (discount = 1/qty * 100%)
+ *   DISCOUNT              → apply percentage or fixed discount
+ */
+function applyGiftsToOrder(order, gifts) {
+    clearGiftDiscounts(order);
+    if (!gifts?.length) return;
+
+    const appliedProductIds = [];
+
+    for (const gift of gifts) {
+        if (!gift.usedOnProductId) continue;
+
+        const line = (order.lines || []).find(
+            (l) => String(l.product_id?.id) === String(gift.usedOnProductId)
+        );
+        if (!line) continue;
+
+        const qty =
+            typeof line.get_quantity === "function" ? line.get_quantity() : line.qty || 1;
+        let discountPct = 0;
+
+        if (gift.type === GIFT_TYPE_PRODUCT || gift.type === GIFT_TYPE_NON_PRODUCT) {
+            // Make usedQty units free: spread over line qty
+            const freeUnits = Math.min(gift.usedQty || 1, qty);
+            discountPct = (freeUnits / qty) * 100;
+        } else if (gift.type === GIFT_TYPE_DISCOUNT && gift.discount) {
+            if (gift.discount.type === DISCOUNT_TYPE_PERCENTAGE) {
+                discountPct = gift.discount.value;
+            } else if (gift.discount.type === DISCOUNT_TYPE_FIXED) {
+                const unitPrice =
+                    typeof line.get_unit_price === "function"
+                        ? line.get_unit_price()
+                        : line.price_unit || 0;
+                if (unitPrice > 0) {
+                    discountPct = Math.min((gift.discount.value / unitPrice) * 100, 100);
+                }
+            }
+        }
+
+        discountPct = Math.min(Math.max(discountPct, 0), 100);
+
+        if (typeof line.set_discount === "function") {
+            line.set_discount(discountPct);
+            appliedProductIds.push(String(gift.usedOnProductId));
+            console.log(
+                `[Walaa] Applied ${discountPct.toFixed(2)}% discount to product`,
+                gift.usedOnProductId,
+                "(gift type:", gift.type, ")"
+            );
+        }
+    }
+
+    order.walaaGiftAppliedProductIds = appliedProductIds;
 }
 
 async function fetchCustomerGifts(customerPhone) {
@@ -98,13 +180,14 @@ function openGiftSelectionDialog(dialog, pos, gifts) {
                 return;
             }
             currentOrder.walaaUsedGifts = mappedGifts;
+            applyGiftsToOrder(currentOrder, mappedGifts);
             if (typeof currentOrder.save_to_db === "function") {
                 currentOrder.save_to_db();
             }
             if (typeof currentOrder.trigger === "function") {
                 currentOrder.trigger("change");
             }
-            console.log("[Walaa] Gifts selected:", mappedGifts);
+            console.log("[Walaa] Gifts selected and applied:", mappedGifts);
         },
     });
 }
@@ -173,6 +256,8 @@ async function mapSelectedGiftsToProducts(dialog, order, selectedGifts, alreadyM
                     usedOnProductId: existingChoice.usedOnProductId,
                     usedOnProductName:
                         existing.usedOnProductName || existingChoice.usedOnProductName,
+                    usedQty: existing.usedQty || 1,
+                    lineQty: existingChoice.qty || 1,
                 });
                 continue;
             }
@@ -188,7 +273,21 @@ async function mapSelectedGiftsToProducts(dialog, order, selectedGifts, alreadyM
             break;
         }
 
-        const selected = await askProductForGift(dialog, gift, availableChoices);
+        // Filter to only products allowed for this specific gift
+        let filteredChoices = availableChoices;
+        const allowedProductIds = gift.productIds || [];
+        if (allowedProductIds.length > 0) {
+            const allowedSet = new Set(allowedProductIds.map(String));
+            filteredChoices = availableChoices.filter((c) =>
+                allowedSet.has(String(c.usedOnProductId))
+            );
+            if (!filteredChoices.length) {
+                console.warn("[Walaa] No matching products in order for gift", gift.id, "— skipping");
+                continue;
+            }
+        }
+
+        const selected = await askProductForGift(dialog, gift, filteredChoices);
         if (selected === SKIP_REWARD) {
             continue;
         }
@@ -200,6 +299,8 @@ async function mapSelectedGiftsToProducts(dialog, order, selectedGifts, alreadyM
             ...gift,
             usedOnProductId: selected.usedOnProductId,
             usedOnProductName: selected.usedOnProductName,
+            usedQty: 1,
+            lineQty: selected.qty || 1,
         });
     }
     return mapped;
@@ -211,6 +312,7 @@ patch(PosOrder.prototype, {
     setup() {
         super.setup(...arguments);
         this.walaaUsedGifts = []; // array of gift objects
+        this.walaaGiftAppliedProductIds = []; // product ids that have walaa discounts on their lines
         const vals = arguments[0] || {};
         if (vals.used_gifts) {
             try {
@@ -285,6 +387,19 @@ class WalaaGiftDialog extends Component {
         } catch {
             return dateStr;
         }
+    }
+
+    giftTypeBadgeClass(type) {
+        if (type === GIFT_TYPE_PRODUCT || type === GIFT_TYPE_NON_PRODUCT) return "badge bg-success ms-2";
+        if (type === GIFT_TYPE_DISCOUNT) return "badge bg-info text-dark ms-2";
+        return "badge bg-secondary ms-2";
+    }
+
+    formatDiscountInfo(gift) {
+        if (gift.type !== GIFT_TYPE_DISCOUNT || !gift.discount) return null;
+        const { type, value } = gift.discount;
+        const formatted = Number(value).toFixed(2);
+        return type === DISCOUNT_TYPE_PERCENTAGE ? `${formatted}% off` : `${formatted} off`;
     }
 }
 

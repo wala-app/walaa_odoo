@@ -165,10 +165,14 @@ If brand token is missing:
         "id": 101,
         "name": "Free Coffee",
         "rewardId": 5,
-        "type": 1,
+        "type": 0,
         "expireDate": "2026-06-01T00:00:00",
+        "productIds": [18],
         "usedOnProductId": 18,
-        "usedOnProductName": "Coca-Cola"
+        "usedOnProductName": "Coca-Cola",
+        "usedQty": 1,
+        "lineQty": 2,
+        "discount": null
       }
     ],
     "lines": [...]
@@ -181,25 +185,80 @@ If brand token is missing:
 When a customer with a phone number is selected in the POS:
 
 1. Odoo calls the Walaa API to fetch available gifts for that customer.
-2. A dialog pops up allowing the cashier to select one or more gifts.
-3. For each selected gift, cashier chooses the product it applies to.
-4. Selected gifts are attached to the order and sent in the `usedGifts` field when the order is synced.
+2. A dialog pops up allowing the cashier to select one or more gifts (each shows its type badge and discount value).
+3. For each selected gift, the cashier chooses which product in the order to apply it to — **only products present in the order AND listed in the gift's `productIds` are shown**. If only one match exists, it is auto-selected with no dialog.
+4. The gift effect is applied immediately to the order line:
+   - **PRODUCT (type 0) / NON_PRODUCT (type 1)**: 1 unit is made free — a discount of `(1 / line_qty) × 100%` is applied to the matched order line.
+   - **DISCOUNT (type 2)**: the gift's discount is applied — percentage discount directly, or fixed amount converted to a percentage of the unit price.
+5. Selected gifts are attached to the order and sent in the `usedGifts` field when the order is synced.
 
-Walaa API used:
+#### Gift types
+
+| `type` | Name | Behavior |
+|--------|------|-----------|
+| `0` | PRODUCT | Gift is valid for one specific product; 1 unit is made free |
+| `1` | NON_PRODUCT | Gift is valid for one of several products; 1 unit is made free |
+| `2` | DISCOUNT | Applies a percentage or fixed-amount discount to the chosen product |
+
+#### Walaa API — fetch customer gifts
 
 - Method: `GET`
-- URL: `<walaa_base_url>/api/odoo/customers/{customer_phone}/gifts`
+- URL: `<walaa_base_url>/api/odoo/customers/{customer_uid}/gifts`
 - Header: `X-Brand-Token: <brand_token>`
-- Path param: `customer_phone` (international phone, e.g. `+96891234567`)
+- Path param: `customer_uid` — customer UID or international phone (e.g. `+96891234567`)
 
 Phone numbers are automatically cleaned (spaces, dashes, parentheses removed) before sending to the API.
 
-Internal Odoo endpoint (POS frontend -> Odoo backend):
+Success response (`200`):
+
+```json
+{
+  "count": 2,
+  "userGifts": [
+    {
+      "id": 101,
+      "name": "Free Coffee",
+      "expireDate": "2026-06-01T00:00:00",
+      "type": 0,
+      "rewardId": 5,
+      "productIds": [18],
+      "discount": null
+    },
+    {
+      "id": 102,
+      "name": "10% Off Burger",
+      "expireDate": null,
+      "type": 2,
+      "rewardId": 6,
+      "productIds": [22, 23],
+      "discount": { "type": 0, "value": 10.0 }
+    }
+  ]
+}
+```
+
+Discount object (present only for type `2`):
+
+| `discount.type` | Meaning |
+|-----------------|---------|
+| `0` | Percentage — `value` is `%` off |
+| `1` | Fixed — `value` is currency amount off per unit |
+
+#### Internal Odoo endpoint (POS frontend → Odoo backend)
 
 - Method: `POST` (JSON-RPC)
 - URL: `/walaa/pos/customer_gifts`
 - Auth: Odoo session (logged-in POS user)
 - Params: `{ "customer_phone": "+96891234567" }`
+
+#### Product selection rules
+
+| Situation | Result |
+|-----------|--------|
+| `productIds` is empty | All products in the order are shown |
+| `productIds` has matches in the order | Only those matching products are shown |
+| `productIds` has no match in the order | Gift is silently skipped |
+| Only one matching product in the order | Dialog is shown with that single product |
 
 ## Delivery Behavior
 
