@@ -5,12 +5,12 @@ from odoo.exceptions import ValidationError
 class ResCompany(models.Model):
     _inherit = "res.company"
 
+    WALAA_BASE_URL = "https://api.walaa.app"
     WALAA_ORDER_PATH = "/api/odoo/orders"
     WALAA_PRODUCT_SYNC_PATH = "/api/odoo/products/sync"
 
     walaa_enabled = fields.Boolean(string="Enable Walaa", default=False)
     walaa_brand_token = fields.Char(string="Walaa Brand Token", copy=False)
-    walaa_base_url = fields.Char(string="Walaa Base URL")
 
     _sql_constraints = [
         (
@@ -22,10 +22,8 @@ class ResCompany(models.Model):
 
     def _walaa_compose_url(self, path):
         self.ensure_one()
-        base_url = (self.walaa_base_url or "").strip().rstrip("/")
+        base_url = self.WALAA_BASE_URL
         route_path = (path or "").strip()
-        if not base_url:
-            raise ValidationError(_("Walaa Base URL is required."))
         if not route_path:
             raise ValidationError(_("Walaa endpoint path is required."))
         if not route_path.startswith("/"):
@@ -45,15 +43,8 @@ class ResCompany(models.Model):
         self.ensure_one()
         if not self.walaa_enabled:
             raise ValidationError(_("Walaa connector is disabled for this company."))
-        missing = []
-        if not self.walaa_base_url:
-            missing.append(_("Walaa Base URL"))
         if require_brand_token and not self.walaa_brand_token:
-            missing.append(_("Walaa Brand Token"))
-        if missing:
-            raise ValidationError(
-                _("Missing Walaa configuration values: %s") % ", ".join(missing)
-            )
+            raise ValidationError(_("Missing Walaa configuration values: Walaa Brand Token"))
 
     def _walaa_order_url(self):
         self.ensure_one()

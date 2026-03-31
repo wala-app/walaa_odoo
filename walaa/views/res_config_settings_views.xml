@@ -14,9 +14,6 @@
                         <setting id="walaa_brand_token_setting" string="Walaa Brand Token" help="Brand identity sent to Walaa in X-Brand-Token.">
                             <field name="walaa_brand_token" password="True"/>
                         </setting>
-                        <setting id="walaa_base_url_setting" string="Walaa Base URL" help="Base URL for Walaa APIs.">
-                            <field name="walaa_base_url" placeholder="https://api.walaa.example"/>
-                        </setting>
                     </block>
                     <block title="Tools">
                         <setting id="walaa_test_connection_setting" string="Connection Test" help="Send a test request to the Walaa order endpoint.">

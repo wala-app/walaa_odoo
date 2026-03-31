@@ -146,14 +146,14 @@ class WalaaConnectorController(http.Controller):
         company = request.env.company
         if not company.walaa_enabled:
             return {"gifts": [], "count": 0, "error": "Walaa connector is disabled."}
-        if not company.walaa_brand_token or not company.walaa_base_url:
+        if not company.walaa_brand_token:
             return {"gifts": [], "count": 0, "error": "Walaa is not fully configured."}
 
         customer_uid = re.sub(r"[\s\-\(\)]", "", customer_phone or "")
         if not customer_uid:
             return {"gifts": [], "count": 0, "error": "No phone number provided."}
 
-        base_url = company.walaa_base_url.strip().rstrip("/")
+        base_url = company.WALAA_BASE_URL
         url = f"{base_url}/api/odoo/customers/{customer_uid}/gifts"
         headers = {"X-Brand-Token": company.walaa_brand_token}
 
@@ -188,14 +188,14 @@ class WalaaConnectorController(http.Controller):
                 "count": 0,
                 "error": "Walaa connector is disabled.",
             }
-        if not company.walaa_brand_token or not company.walaa_base_url:
+        if not company.walaa_brand_token:
             return {
                 "orderRequests": [],
                 "count": 0,
                 "error": "Walaa is not fully configured.",
             }
 
-        base_url = company.walaa_base_url.strip().rstrip("/")
+        base_url = company.WALAA_BASE_URL
         url = f"{base_url}/api/odoo/order-requests/today"
         headers = {"X-Brand-Token": company.walaa_brand_token}
 
@@ -252,6 +252,25 @@ class WalaaConnectorController(http.Controller):
                 write_vals["phone"] = phone
             if write_vals:
                 partner.sudo().write(write_vals)
+
+        # Fire-and-forget: notify Walaa that this order request was selected.
+        document_id = order_request.get("documentId") or order_request.get("id")
+        company = request.env.company
+        if document_id and company.walaa_enabled and company.walaa_brand_token:
+            base_url = company.WALAA_BASE_URL
+            notify_url = f"{base_url}/api/order/requests/{document_id}"
+            try:
+                requests.post(
+                    notify_url,
+                    headers={"X-Brand-Token": company.walaa_brand_token},
+                    timeout=(5, 0.001),
+                )
+            except requests.exceptions.ReadTimeout:
+                pass  # expected – we don't need the response
+            except Exception:
+                _logger.warning(
+                    "Walaa order request notify failed for documentId %s", document_id
+                )
 
         partner_payload = {
             "id": partner.id,
