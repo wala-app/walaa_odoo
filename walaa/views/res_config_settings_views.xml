@@ -24,7 +24,7 @@
                                 class="btn btn-primary"
                             />
                         </setting>
-                        <setting id="walaa_manual_product_sync_setting" string="Manual Product Sync" help="Send all active saleable products to Walaa now in one request (no paging).">
+                        <setting id="walaa_manual_product_sync_setting" string="Manual Product Sync" help="Send all active saleable products to Walaa.">
                             <button
                                 name="action_sync_all_products_now"
                                 type="object"

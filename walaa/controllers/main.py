@@ -263,7 +263,7 @@ class WalaaConnectorController(http.Controller):
                 requests.post(
                     notify_url,
                     headers={"X-Brand-Token": company.walaa_brand_token},
-                    timeout=(5, 0.001),
+                    timeout=(10, 100),
                 )
             except requests.exceptions.ReadTimeout:
                 pass  # expected – we don't need the response

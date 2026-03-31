@@ -5,7 +5,7 @@ from odoo.exceptions import ValidationError
 class ResCompany(models.Model):
     _inherit = "res.company"
 
-    WALAA_BASE_URL = "https://api.walaa.app"
+    WALAA_BASE_URL = "https://api.walaa.com"
     WALAA_ORDER_PATH = "/api/odoo/orders"
     WALAA_PRODUCT_SYNC_PATH = "/api/odoo/products/sync"
 
@@ -76,8 +76,7 @@ class ResCompany(models.Model):
             "trigger": trigger_payload,
             "total_products": len(products),
             "products": [
-                self._walaa_serialize_product(product, self.currency_id.name)
-                for product in products
+                self._walaa_serialize_product(product, self.currency_id.name) for product in products
             ],
         }
 
@@ -104,8 +103,7 @@ class ResCompany(models.Model):
             "trigger": trigger_payload,
             "total_products": len(products),
             "products": [
-                self._walaa_serialize_product(product, self.currency_id.name)
-                for product in products
+                self._walaa_serialize_product(product, self.currency_id.name) for product in products
             ],
         }
 
