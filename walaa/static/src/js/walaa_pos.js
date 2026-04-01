@@ -31,31 +31,34 @@ function cleanPhone(raw) {
 
 function getOrderProductChoices(order) {
     const lines = order?.lines || [];
-    const seenProductIds = new Set();
-    const choices = [];
+    // Aggregate qty across all lines for the same product
+    const productMap = new Map();
     for (const line of lines) {
         const product = line?.product_id;
         const productId = product?.id;
-        if (!productId || seenProductIds.has(productId)) {
-            continue;
-        }
-        seenProductIds.add(productId);
-        const productName =
-            (typeof line.get_full_product_name === "function" && line.get_full_product_name()) ||
-            product.display_name ||
-            product.name ||
-            "Product";
-        const qty =
+        if (!productId) continue;
+        const lineQty =
             (typeof line.get_quantity === "function" && line.get_quantity()) || line.qty || 0;
-        choices.push({
-            id: productId,
-            label: `${productName} (x${qty})`,
-            usedOnProductId: productId,
-            usedOnProductName: productName,
-            qty,
-        });
+        if (productMap.has(productId)) {
+            productMap.get(productId).qty += lineQty;
+        } else {
+            const productName =
+                (typeof line.get_full_product_name === "function" && line.get_full_product_name()) ||
+                product.display_name ||
+                product.name ||
+                "Product";
+            productMap.set(productId, {
+                id: productId,
+                usedOnProductId: productId,
+                usedOnProductName: productName,
+                qty: lineQty,
+            });
+        }
     }
-    return choices;
+    return Array.from(productMap.values()).map((c) => ({
+        ...c,
+        label: `${c.usedOnProductName} (x${c.qty})`,
+    }));
 }
 
 function askProductForGift(dialog, gift, productChoices) {
@@ -87,55 +90,72 @@ function clearGiftDiscounts(order) {
 }
 
 /**
- * Apply gift effects to matching order lines based on gift type:
- *   PRODUCT / NON_PRODUCT → make 1 unit free (discount = 1/qty * 100%)
- *   DISCOUNT              → apply percentage or fixed discount
+ * Apply gift effects to matching order lines based on gift type.
+ * Gifts targeting the same product are accumulated before applying so
+ * discounts combine rather than overwrite each other.
+ *   PRODUCT / NON_PRODUCT → make 1 unit free (freeUnits accumulate across gifts)
+ *   DISCOUNT              → percentage or fixed discount (values accumulate)
  */
 function applyGiftsToOrder(order, gifts) {
     clearGiftDiscounts(order);
     if (!gifts?.length) return;
 
-    const appliedProductIds = [];
-
+    // Group gifts by the product line they target
+    const byProduct = new Map();
     for (const gift of gifts) {
         if (!gift.usedOnProductId) continue;
+        const key = String(gift.usedOnProductId);
+        if (!byProduct.has(key)) byProduct.set(key, []);
+        byProduct.get(key).push(gift);
+    }
 
+    const appliedProductIds = [];
+
+    for (const [productId, productGifts] of byProduct) {
         const line = (order.lines || []).find(
-            (l) => String(l.product_id?.id) === String(gift.usedOnProductId)
+            (l) => String(l.product_id?.id) === productId
         );
         if (!line) continue;
 
         const qty =
             typeof line.get_quantity === "function" ? line.get_quantity() : line.qty || 1;
-        let discountPct = 0;
+        const unitPrice =
+            typeof line.get_unit_price === "function"
+                ? line.get_unit_price()
+                : line.price_unit || 0;
 
-        if (gift.type === GIFT_TYPE_PRODUCT || gift.type === GIFT_TYPE_NON_PRODUCT) {
-            // Make usedQty units free: spread over line qty
-            const freeUnits = Math.min(gift.usedQty || 1, qty);
-            discountPct = (freeUnits / qty) * 100;
-        } else if (gift.type === GIFT_TYPE_DISCOUNT && gift.discount) {
-            if (gift.discount.type === DISCOUNT_TYPE_PERCENTAGE) {
-                discountPct = gift.discount.value;
-            } else if (gift.discount.type === DISCOUNT_TYPE_FIXED) {
-                const unitPrice =
-                    typeof line.get_unit_price === "function"
-                        ? line.get_unit_price()
-                        : line.price_unit || 0;
-                if (unitPrice > 0) {
-                    discountPct = Math.min((gift.discount.value / unitPrice) * 100, 100);
+        // Accumulate free units and additive discount %
+        let totalFreeUnits = 0;
+        let additionalDiscountPct = 0;
+
+        for (const gift of productGifts) {
+            if (gift.type === GIFT_TYPE_PRODUCT || gift.type === GIFT_TYPE_NON_PRODUCT) {
+                totalFreeUnits += gift.usedQty || 1;
+            } else if (gift.type === GIFT_TYPE_DISCOUNT && gift.discount) {
+                if (gift.discount.type === DISCOUNT_TYPE_PERCENTAGE) {
+                    additionalDiscountPct += gift.discount.value;
+                } else if (gift.discount.type === DISCOUNT_TYPE_FIXED && unitPrice > 0) {
+                    additionalDiscountPct += (gift.discount.value / unitPrice) * 100;
                 }
             }
+        }
+
+        // Free units → discount on the whole line
+        let discountPct = additionalDiscountPct;
+        if (totalFreeUnits > 0) {
+            const freeUnits = Math.min(totalFreeUnits, qty);
+            discountPct += (freeUnits / qty) * 100;
         }
 
         discountPct = Math.min(Math.max(discountPct, 0), 100);
 
         if (typeof line.set_discount === "function") {
             line.set_discount(discountPct);
-            appliedProductIds.push(String(gift.usedOnProductId));
+            appliedProductIds.push(productId);
             console.log(
                 `[Walaa] Applied ${discountPct.toFixed(2)}% discount to product`,
-                gift.usedOnProductId,
-                "(gift type:", gift.type, ")"
+                productId,
+                `(${productGifts.length} gift(s), freeUnits=${totalFreeUnits})`
             );
         }
     }
@@ -301,15 +321,20 @@ async function mapSelectedGiftsToProducts(dialog, order, selectedGifts, alreadyM
         (alreadyMapped || []).map((gift) => [String(gift.id), gift])
     );
 
+    // Track remaining quantity per product (not a binary used/unused flag)
+    const remainingQty = new Map(
+        productChoices.map((choice) => [String(choice.usedOnProductId), choice.qty || 1])
+    );
+
     const mapped = [];
-    const usedProductIds = new Set();
     for (const gift of selectedGifts) {
         const existing = mappedByGiftId.get(String(gift.id));
         if (existing?.usedOnProductId) {
             const existingProductId = String(existing.usedOnProductId);
             const existingChoice = choiceByProductId.get(existingProductId);
-            if (existingChoice && !usedProductIds.has(existingProductId)) {
-                usedProductIds.add(existingProductId);
+            const rem = remainingQty.get(existingProductId) || 0;
+            if (existingChoice && rem > 0) {
+                remainingQty.set(existingProductId, rem - 1);
                 mapped.push({
                     ...gift,
                     usedOnProductId: existingChoice.usedOnProductId,
@@ -322,13 +347,12 @@ async function mapSelectedGiftsToProducts(dialog, order, selectedGifts, alreadyM
             }
         }
 
+        // Only show products that still have remaining quantity
         const availableChoices = productChoices.filter(
-            (choice) => !usedProductIds.has(String(choice.usedOnProductId))
+            (choice) => (remainingQty.get(String(choice.usedOnProductId)) || 0) > 0
         );
         if (!availableChoices.length) {
-            console.warn(
-                "[Walaa] No more available products to map for remaining gifts. Remaining gifts are skipped."
-            );
+            console.warn("[Walaa] No more available quantity for remaining gifts — skipping.");
             break;
         }
 
@@ -353,7 +377,8 @@ async function mapSelectedGiftsToProducts(dialog, order, selectedGifts, alreadyM
         if (!selected?.usedOnProductId) {
             return false;
         }
-        usedProductIds.add(String(selected.usedOnProductId));
+        const selId = String(selected.usedOnProductId);
+        remainingQty.set(selId, (remainingQty.get(selId) || 1) - 1);
         mapped.push({
             ...gift,
             usedOnProductId: selected.usedOnProductId,
