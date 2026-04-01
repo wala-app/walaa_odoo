@@ -11,8 +11,8 @@
     ],
     "assets": {
         "point_of_sale._assets_pos": [
-            "walaa/static/src/js/walaa_pos.js",
-            "walaa/static/src/xml/walaa_pos.xml",
+            "walaa_odoo/static/src/js/walaa_pos.js",
+            "walaa_odoo/static/src/xml/walaa_pos.xml",
         ],
     },
     "installable": True,
