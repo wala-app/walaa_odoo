@@ -5,7 +5,7 @@ from odoo.exceptions import ValidationError
 class ResCompany(models.Model):
     _inherit = "res.company"
 
-    WALAA_BASE_URL = "https://api.walaa.com"
+    WALAA_BASE_URL = "https://api.walaa.app"
     WALAA_ORDER_PATH = "/api/odoo/orders"
     WALAA_PRODUCT_SYNC_PATH = "/api/odoo/products/sync"
 
