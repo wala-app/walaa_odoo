@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- Owl 3 templates (Odoo 20): component members are referenced with `this.`,
+     values are printed with t-out, and icons use Odoo's `oi` icon font. -->
 <templates xml:space="preserve">
 
     <!-- Walaa Gift Selection Dialog (multi-select with checkboxes) -->
@@ -10,18 +12,18 @@
                     Select one or more rewards / gifts to apply to this order:
                 </p>
 
-                <t t-if="props.gifts.length === 0">
+                <t t-if="this.props.gifts.length === 0">
                     <p class="text-center text-muted py-4">No gifts available.</p>
                 </t>
 
                 <div
-                    t-foreach="props.gifts"
+                    t-foreach="this.props.gifts"
                     t-as="gift"
                     t-key="gift.id"
                     class="walaa-gift-item d-flex align-items-start p-3 mb-2 border rounded"
                     t-att-class="{
-                        'border-primary bg-primary text-white': isSelected(gift.id),
-                        'border-secondary': !isSelected(gift.id)
+                        'border-primary bg-primary text-white': this.isSelected(gift.id),
+                        'border-secondary': !this.isSelected(gift.id)
                     }"
                     style="cursor:pointer"
                     t-on-click="() => this.toggleGift(gift)">
@@ -31,7 +33,7 @@
                             type="checkbox"
                             class="form-check-input"
                             t-att-id="'walaa-gift-' + gift.id"
-                            t-att-checked="isSelected(gift.id)"/>
+                            t-att-checked="this.isSelected(gift.id)"/>
                     </div>
 
                     <div class="flex-grow-1">
@@ -39,40 +41,36 @@
                             t-att-for="'walaa-gift-' + gift.id"
                             class="mb-0 fw-semibold d-flex align-items-center flex-wrap"
                             style="cursor:pointer">
-                            <t t-esc="gift.name || ('Reward #' + (gift.rewardId || gift.id))"/>
-                            <span t-att-class="giftTypeBadgeClass(gift.type)">
-                                <t t-if="formatDiscountInfo(gift)">
-                                    <t t-esc="formatDiscountInfo(gift)"/>
-                                </t>
+                            <t t-out="gift.name || ('Reward #' + (gift.rewardId || gift.id))"/>
+                            <span t-if="this.giftTypeLabel(gift)" t-att-class="this.giftTypeBadgeClass(gift.type)">
+                                <t t-out="this.giftTypeLabel(gift)"/>
                             </span>
                         </label>
                         <t t-if="gift.expireDate">
                             <small
                                 class="d-block"
                                 t-att-class="{
-                                    'text-white-50': isSelected(gift.id),
-                                    'text-muted': !isSelected(gift.id)
+                                    'text-white-50': this.isSelected(gift.id),
+                                    'text-muted': !this.isSelected(gift.id)
                                 }">
-                                Expires: <t t-esc="formatExpiry(gift.expireDate)"/>
+                                Expires: <t t-out="this.formatExpiry(gift.expireDate)"/>
                             </small>
                         </t>
                     </div>
 
-                    <span class="badge bg-secondary align-self-center ms-2">
-                        #<t t-esc="gift.id"/>
+                    <span class="badge text-bg-secondary align-self-center ms-2">
+                        #<t t-out="gift.id"/>
                     </span>
                 </div>
             </div>
 
             <t t-set-slot="footer">
-                <button class="btn btn-secondary" t-on-click="() => props.close()">
-                    Cancel
+                <button class="btn btn-primary" t-on-click="this.confirm">
+                    <i class="oi me-1" data-icon="check" role="img" aria-hidden="true"/>
+                    Apply <t t-if="this.selectedCount > 0">(<t t-out="this.selectedCount"/>)</t>
                 </button>
-                <button
-                    class="btn btn-primary ms-2"
-                    t-on-click="confirm">
-                    <i class="fa fa-check me-1"/>
-                    Apply <t t-if="selectedCount > 0">(<t t-esc="selectedCount"/>)</t>
+                <button class="btn btn-secondary" t-on-click="() => this.props.close()">
+                    Cancel
                 </button>
             </t>
 
@@ -84,16 +82,16 @@
         <Dialog title="'Select Product For Gift'" size="'md'">
             <div class="walaa-gift-list">
                 <p class="text-muted small mb-3">
-                    Apply "<t t-esc="props.giftName"/>" to which product?
+                    Apply "<t t-out="this.props.giftName"/>" to which product?
                 </p>
                 <div
-                    t-foreach="props.products"
+                    t-foreach="this.props.products"
                     t-as="product"
                     t-key="product.id"
                     class="walaa-gift-item d-flex align-items-start p-3 mb-2 border rounded"
                     t-att-class="{
-                        'border-primary bg-primary text-white': isSelected(product.id),
-                        'border-secondary': !isSelected(product.id)
+                        'border-primary bg-primary text-white': this.isSelected(product.id),
+                        'border-secondary': !this.isSelected(product.id)
                     }"
                     style="cursor:pointer"
                     t-on-click="() => this.choose(product)">
@@ -104,7 +102,7 @@
                             class="form-check-input"
                             name="walaa-gift-product"
                             t-att-id="'walaa-gift-product-' + product.id"
-                            t-att-checked="isSelected(product.id)"/>
+                            t-att-checked="this.isSelected(product.id)"/>
                     </div>
 
                     <div class="flex-grow-1">
@@ -112,28 +110,28 @@
                             t-att-for="'walaa-gift-product-' + product.id"
                             class="mb-0 fw-semibold"
                             style="cursor:pointer">
-                            <t t-esc="product.label"/>
+                            <t t-out="product.label"/>
                         </label>
                     </div>
                 </div>
             </div>
             <t t-set-slot="footer">
-                <button class="btn btn-secondary" t-on-click="() => props.close()">
-                    Cancel
+                <button
+                    class="btn btn-primary"
+                    t-on-click="this.confirm"
+                    t-att-disabled="!this.state.selectedProductId">
+                    <i class="oi me-1" data-icon="check" role="img" aria-hidden="true"/>
+                    Apply
                 </button>
-                <button class="btn btn-outline-danger ms-2" t-on-click="skipReward">
+                <button class="btn btn-outline-danger" t-on-click="this.skipReward">
                     Unselect Reward
                 </button>
-                <button
-                    class="btn btn-primary ms-2"
-                    t-on-click="confirm"
-                    t-att-disabled="!state.selectedProductId">
-                    <i class="fa fa-check me-1"/>
-                    Apply
+                <button class="btn btn-secondary" t-on-click="() => this.props.close()">
+                    Cancel
                 </button>
             </t>
         </Dialog>
-</t>
+    </t>
 
     <t t-name="walaa.WalaaOrderRequestDialog">
         <Dialog title="'Walaa Order Requests (Today)'" size="'lg'">
@@ -143,21 +141,21 @@
                         type="text"
                         class="form-control"
                         placeholder="Search by customer name or phone number"
-                        t-on-input="onSearchInput"/>
+                        t-on-input="this.onSearchInput"/>
                 </div>
 
-                <t t-if="filteredRequests.length === 0">
+                <t t-if="this.filteredRequests.length === 0">
                     <p class="text-center text-muted py-4">No order requests available.</p>
                 </t>
 
                 <div
-                    t-foreach="filteredRequests"
+                    t-foreach="this.filteredRequests"
                     t-as="req"
-                    t-key="requestKey(req)"
+                    t-key="this.requestKey(req)"
                     class="walaa-gift-item d-flex align-items-start p-3 mb-2 border rounded"
                     t-att-class="{
-                        'border-primary bg-primary text-white': isSelected(req),
-                        'border-secondary': !isSelected(req)
+                        'border-primary bg-primary text-white': this.isSelected(req),
+                        'border-secondary': !this.isSelected(req)
                     }"
                     style="cursor:pointer"
                     t-on-click="() => this.choose(req)">
@@ -166,72 +164,71 @@
                             type="radio"
                             class="form-check-input"
                             name="walaa-order-request"
-                            t-att-id="'walaa-order-request-' + requestKey(req)"
-                            t-att-checked="isSelected(req)"/>
+                            t-att-id="'walaa-order-request-' + this.requestKey(req)"
+                            t-att-checked="this.isSelected(req)"/>
                     </div>
 
                     <div class="flex-grow-1">
-                        <div class="d-flex justify-content-between flex-wrap gap-2">
-                            <div>
-                                <label
-                                    class="mb-0 fw-semibold"
-                                    style="cursor:pointer"
-                                    t-att-for="'walaa-order-request-' + requestKey(req)">
-                                    <t t-esc="req.customerName || req.uid || 'Unknown Customer'"/>
-                                </label>
-                                <small
-                                    class="d-block"
-                                    t-att-class="{
-                                        'text-white-50': isSelected(req),
-                                        'text-muted': !isSelected(req)
-                                    }">
-                                    Phone: <t t-esc="req.phoneNumber || '-'"/>
-                                </small>
-                            </div>
-                        </div>
+                        <label
+                            class="mb-0 fw-semibold"
+                            style="cursor:pointer"
+                            t-att-for="'walaa-order-request-' + this.requestKey(req)">
+                            <t t-out="req.customerName || req.uid || 'Unknown Customer'"/>
+                        </label>
+                        <small
+                            class="d-block"
+                            t-att-class="{
+                                'text-white-50': this.isSelected(req),
+                                'text-muted': !this.isSelected(req)
+                            }">
+                            Phone: <t t-out="req.phoneNumber || '-'"/>
+                        </small>
                     </div>
                 </div>
             </div>
             <t t-set-slot="footer">
-                <button class="btn btn-secondary" t-on-click="() => props.close()">
-                    Cancel
-                </button>
                 <button
-                    class="btn btn-primary ms-2"
-                    t-on-click="confirm"
-                    t-att-disabled="!state.selectedKey">
-                    <i class="fa fa-check me-1"/>
+                    class="btn btn-primary"
+                    t-on-click="this.confirm"
+                    t-att-disabled="!this.state.selectedKey">
+                    <i class="oi me-1" data-icon="check" role="img" aria-hidden="true"/>
                     Select Request
+                </button>
+                <button class="btn btn-secondary" t-on-click="() => this.props.close()">
+                    Cancel
                 </button>
             </t>
         </Dialog>
     </t>
 
     <t t-name="walaa.WalaaLoadingDialog">
-        <Dialog title="props.title || 'Loading'" size="'sm'">
+        <Dialog title="this.props.title" size="'sm'" footer="false">
             <div class="d-flex align-items-center justify-content-center py-4">
                 <div class="spinner-border text-primary me-3" role="status">
                     <span class="visually-hidden">Loading...</span>
                 </div>
                 <div class="fw-semibold">
-                    <t t-esc="props.message || 'Please wait...'"/>
+                    <t t-out="this.props.message"/>
                 </div>
             </div>
         </Dialog>
     </t>
 
+    <!-- Two extra buttons in the POS "Actions" dialog, using Odoo's own control button -->
     <t t-name="walaa.ControlButtonsWalaaGifts"
        t-inherit="point_of_sale.ControlButtons"
        t-inherit-mode="extension">
         <xpath expr="//div[contains(@class, 'control-buttons-modal')]" position="inside">
-            <button t-att-class="buttonClass" t-on-click="onClickWalaaGifts">
-                <i class="fa fa-gift me-1"/>
-                Walaa Gifts
-            </button>
-            <button t-att-class="buttonClass" t-on-click="onClickWalaaOrderRequests">
-                <i class="fa fa-list me-1"/>
-                Walaa Order Requests
-            </button>
+            <t t-call="point_of_sale.controlButton"
+               icon="'card_giftcard'"
+               btnText.translate="Walaa Gifts"
+               btnClasses="'btn-secondary '"
+               onClick="() => this.onClickWalaaGifts()"/>
+            <t t-call="point_of_sale.controlButton"
+               icon="'shopping_basket'"
+               btnText.translate="Walaa Order Requests"
+               btnClasses="'btn-secondary '"
+               onClick="() => this.onClickWalaaOrderRequests()"/>
         </xpath>
     </t>
 

@@ -115,9 +115,10 @@ class ResCompany(models.Model):
                 }
             )
 
-        image_value = product.image_1920 or product.product_tmpl_id.image_1920
-        if isinstance(image_value, bytes):
-            image_value = image_value.decode("utf-8")
+        # Odoo 20: binary fields return a BinaryValue holding the raw content (no longer
+        # base64 bytes), so encode it explicitly. An empty image is falsy.
+        image = product.image_1920 or product.product_tmpl_id.image_1920
+        image_value = image.to_base64() if image else False
 
         return {
             "id": product.id,

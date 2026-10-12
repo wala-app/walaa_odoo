@@ -1,4 +1,4 @@
-# Walaa (Odoo 19)
+# Walaa (Odoo 20)
 
 This module connects Odoo Sales and Products with your Walaa app.
 
@@ -14,7 +14,7 @@ This module connects Odoo Sales and Products with your Walaa app.
 
 ## Requirements
 
-- Odoo 19 (self-hosted).
+- Odoo 20 (self-hosted).
 - Installed Odoo modules: `sale`, `product`, `base`, `point_of_sale`.
 - Walaa API endpoints reachable from the Odoo server.
 - Python `requests` package available in Odoo environment.

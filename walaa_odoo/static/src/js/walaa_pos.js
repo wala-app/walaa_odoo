@@ -5,7 +5,7 @@ import { patch } from "@web/core/utils/patch";
 import { PosOrder } from "@point_of_sale/app/models/pos_order";
 import { ProductScreen } from "@point_of_sale/app/screens/product_screen/product_screen";
 import { ControlButtons } from "@point_of_sale/app/screens/product_screen/control_buttons/control_buttons";
-import { Component, useState, useEffect } from "@odoo/owl";
+import { Component, proxy, t, useLayoutEffect, useProps } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 import { usePos } from "@point_of_sale/app/hooks/pos_hook";
 import { Dialog } from "@web/core/dialog/dialog";
@@ -62,15 +62,21 @@ function getOrderProductChoices(order) {
     }));
 }
 
+// The dialog service injects its own `close` prop, so Cancel / the X button are
+// reported through the `onClose` option. A promise only resolves once, so this
+// does not override an earlier onConfirm / onSkip.
 function askProductForGift(dialog, gift, productChoices) {
     return new Promise((resolve) => {
-        dialog.add(WalaaGiftProductDialog, {
-            giftName: gift?.name || "Gift",
-            products: productChoices,
-            onConfirm: (product) => resolve(product || false),
-            onSkip: () => resolve(SKIP_REWARD),
-            close: () => resolve(false),
-        });
+        dialog.add(
+            WalaaGiftProductDialog,
+            {
+                giftName: gift?.name || "Gift",
+                products: productChoices,
+                onConfirm: (product) => resolve(product || false),
+                onSkip: () => resolve(SKIP_REWARD),
+            },
+            { onClose: () => resolve(false) }
+        );
     });
 }
 
@@ -178,11 +184,14 @@ async function resolveOrderRequestSelection(orderRequest) {
 
 function askOrderRequest(dialog, orderRequests) {
     return new Promise((resolve) => {
-        dialog.add(WalaaOrderRequestDialog, {
-            requests: orderRequests,
-            onConfirm: (selected) => resolve(selected || false),
-            close: () => resolve(false),
-        });
+        dialog.add(
+            WalaaOrderRequestDialog,
+            {
+                requests: orderRequests,
+                onConfirm: (selected) => resolve(selected || false),
+            },
+            { onClose: () => resolve(false) }
+        );
     });
 }
 
@@ -395,47 +404,44 @@ patch(PosOrder.prototype, {
 });
 
 // ─── Gift Selection Dialog (multi-select with checkboxes) ───────────────────
+// Odoo 20 ships Owl 3: props are declared with useProps() (a `static props` throws),
+// and local reactive state uses proxy() instead of useState().
 
 class WalaaGiftDialog extends Component {
     static template = "walaa.WalaaGiftDialog";
     static components = { Dialog };
-    static props = {
-        gifts: Array,
-        alreadySelected: Array,
-        onConfirm: Function,
-        close: Function,
-    };
+    props = useProps({
+        gifts: t.array(),
+        alreadySelected: t.array().optional([]),
+        onConfirm: t.function(),
+        close: t.function(),
+    });
 
     setup() {
-        // Build a Set of already-selected gift IDs
-        const selectedIds = new Set((this.props.alreadySelected || []).map((g) => g.id));
-        this.state = useState({
-            selectedIds,
+        this.state = proxy({
+            selectedIds: (this.props.alreadySelected || []).map((g) => g.id),
         });
     }
 
     toggleGift(gift) {
-        if (this.state.selectedIds.has(gift.id)) {
-            this.state.selectedIds.delete(gift.id);
-        } else {
-            this.state.selectedIds.add(gift.id);
-        }
-        // trigger OWL reactivity by reassigning
-        this.state.selectedIds = new Set(this.state.selectedIds);
+        const ids = this.state.selectedIds;
+        this.state.selectedIds = ids.includes(gift.id)
+            ? ids.filter((id) => id !== gift.id)
+            : [...ids, gift.id];
     }
 
     isSelected(giftId) {
-        return this.state.selectedIds.has(giftId);
+        return this.state.selectedIds.includes(giftId);
     }
 
     async confirm() {
-        const chosen = this.props.gifts.filter((g) => this.state.selectedIds.has(g.id));
+        const chosen = this.props.gifts.filter((g) => this.state.selectedIds.includes(g.id));
         this.props.close();
         await this.props.onConfirm(chosen);
     }
 
     get selectedCount() {
-        return this.state.selectedIds.size;
+        return this.state.selectedIds.length;
     }
 
     formatExpiry(dateStr) {
@@ -448,9 +454,9 @@ class WalaaGiftDialog extends Component {
     }
 
     giftTypeBadgeClass(type) {
-        if (type === GIFT_TYPE_PRODUCT || type === GIFT_TYPE_NON_PRODUCT) return "badge bg-success ms-2";
-        if (type === GIFT_TYPE_DISCOUNT) return "badge bg-info text-dark ms-2";
-        return "badge bg-secondary ms-2";
+        if (type === GIFT_TYPE_PRODUCT || type === GIFT_TYPE_NON_PRODUCT) return "badge text-bg-success ms-2";
+        if (type === GIFT_TYPE_DISCOUNT) return "badge text-bg-info ms-2";
+        return "badge text-bg-secondary ms-2";
     }
 
     formatDiscountInfo(gift) {
@@ -459,21 +465,27 @@ class WalaaGiftDialog extends Component {
         const formatted = Number(value).toFixed(2);
         return type === DISCOUNT_TYPE_PERCENTAGE ? `${formatted}% off` : `${formatted} off`;
     }
+
+    giftTypeLabel(gift) {
+        if (gift.type === GIFT_TYPE_PRODUCT) return "Free product";
+        if (gift.type === GIFT_TYPE_NON_PRODUCT) return "Free item";
+        return this.formatDiscountInfo(gift);
+    }
 }
 
 class WalaaGiftProductDialog extends Component {
     static template = "walaa.WalaaGiftProductDialog";
     static components = { Dialog };
-    static props = {
-        giftName: String,
-        products: Array,
-        onConfirm: Function,
-        onSkip: Function,
-        close: Function,
-    };
+    props = useProps({
+        giftName: t.string(),
+        products: t.array(),
+        onConfirm: t.function(),
+        onSkip: t.function(),
+        close: t.function(),
+    });
 
     setup() {
-        this.state = useState({
+        this.state = proxy({
             selectedProductId: this.props.products?.[0]?.id || null,
         });
     }
@@ -495,9 +507,7 @@ class WalaaGiftProductDialog extends Component {
     }
 
     skipReward() {
-        if (typeof this.props.onSkip === "function") {
-            this.props.onSkip();
-        }
+        this.props.onSkip();
         this.props.close();
     }
 }
@@ -505,15 +515,15 @@ class WalaaGiftProductDialog extends Component {
 class WalaaOrderRequestDialog extends Component {
     static template = "walaa.WalaaOrderRequestDialog";
     static components = { Dialog };
-    static props = {
-        requests: Array,
-        onConfirm: Function,
-        close: Function,
-    };
+    props = useProps({
+        requests: t.array(),
+        onConfirm: t.function(),
+        close: t.function(),
+    });
 
     setup() {
         const first = this.props.requests?.[0];
-        this.state = useState({
+        this.state = proxy({
             selectedKey: first ? this.requestKey(first) : null,
             searchQuery: "",
         });
@@ -558,17 +568,9 @@ class WalaaOrderRequestDialog extends Component {
     }
 
     confirm() {
-        const selected = (this.filteredRequests || []).find(
+        const selected = (this.props.requests || []).find(
             (req) => this.requestKey(req) === this.state.selectedKey
         );
-        if (!selected) {
-            const fallback = (this.props.requests || []).find(
-                (req) => this.requestKey(req) === this.state.selectedKey
-            );
-            this.props.onConfirm(fallback || false);
-            this.props.close();
-            return;
-        }
         this.props.onConfirm(selected || false);
         this.props.close();
     }
@@ -577,17 +579,19 @@ class WalaaOrderRequestDialog extends Component {
 class WalaaLoadingDialog extends Component {
     static template = "walaa.WalaaLoadingDialog";
     static components = { Dialog };
-    static props = {
-        title: { type: String, optional: true },
-        message: { type: String, optional: true },
-    };
+    props = useProps({
+        title: t.string().optional("Loading"),
+        message: t.string().optional("Please wait..."),
+        close: t.function(),
+    });
 }
 
+// The Odoo 20 "Actions" popup closes itself when one of its buttons is clicked
+// (closeOnBodyButtonClick), so these handlers no longer close it themselves.
 patch(ControlButtons.prototype, {
     async onClickWalaaGifts() {
         const order = this.pos.getOrder();
         const partner = order?.getPartner?.();
-        // Odoo 19 removed res.partner.mobile; phone is the only number field.
         const phone = cleanPhone(partner?.phone);
         if (!phone) {
             this.notification.add("Select a customer with phone number first.", {
@@ -602,25 +606,13 @@ patch(ControlButtons.prototype, {
             notification: this.notification,
             notifyIfEmpty: true,
         });
-        if (typeof this.props?.close === "function") {
-            this.props.close();
-        }
     },
 
     async onClickWalaaOrderRequests() {
-        const loadingRef = this.dialog.add(WalaaLoadingDialog, {
+        const closeLoading = this.dialog.add(WalaaLoadingDialog, {
             title: "Walaa Order Requests",
             message: "Loading order requests...",
         });
-        const closeLoading = () => {
-            if (typeof loadingRef === "function") {
-                loadingRef();
-                return;
-            }
-            if (loadingRef && typeof loadingRef.close === "function") {
-                loadingRef.close();
-            }
-        };
         try {
             const payload = await fetchOrderRequestsToday();
             closeLoading();
@@ -673,17 +665,12 @@ patch(ControlButtons.prototype, {
             }
 
             order.setPartner(partner);
-            // Odoo 19 models are reactive and auto-persisted; no save_to_db/trigger needed.
-
             this.notification.add(
                 resolved.created
                     ? "Customer created and assigned to order."
                     : "Customer assigned to order.",
                 { type: "success" }
             );
-            if (typeof this.props?.close === "function") {
-                this.props.close();
-            }
         } catch (err) {
             closeLoading();
             console.error("[Walaa] Failed handling order requests action:", err);
@@ -695,6 +682,7 @@ patch(ControlButtons.prototype, {
 });
 
 // ─── Patch ProductScreen to watch for partner changes & show gift popup ─────
+// Owl 3 (Odoo 20): the Owl 2 style "effect with dependencies" is useLayoutEffect.
 
 patch(ProductScreen.prototype, {
     setup() {
@@ -706,7 +694,7 @@ patch(ProductScreen.prototype, {
 
         let lastPartnerId = null;
 
-        useEffect(
+        useLayoutEffect(
             (partner) => {
                 if (!partner) {
                     lastPartnerId = null;
