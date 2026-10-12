@@ -24,13 +24,9 @@ class WalaaConnectorController(http.Controller):
 
         candidates = [clean_phone, raw_phone]
         candidates = [value for value in candidates if value]
-        # Exact match on phone/mobile first (fast path)
+        # Exact match on phone first (fast path). Odoo 19 removed res.partner.mobile.
         partner = partner_model.search(
-            [
-                "|",
-                ("phone", "in", candidates),
-                ("mobile", "in", candidates),
-            ],
+            [("phone", "in", candidates)],
             limit=1,
             order="id asc",
         )
@@ -39,18 +35,12 @@ class WalaaConnectorController(http.Controller):
 
         # Fallback: normalized compare in Python when existing values contain spaces/symbols.
         sample = partner_model.search(
-            [
-                "|",
-                ("phone", "!=", False),
-                ("mobile", "!=", False),
-            ],
+            [("phone", "!=", False)],
             limit=1000,
             order="id desc",
         )
         for rec in sample:
             if self._normalize_phone(rec.phone) == clean_phone:
-                return rec
-            if self._normalize_phone(rec.mobile) == clean_phone:
                 return rec
         return partner_model.browse()
 
@@ -137,7 +127,7 @@ class WalaaConnectorController(http.Controller):
 
     @http.route(
         "/walaa/pos/customer_gifts",
-        type="json",
+        type="jsonrpc",
         auth="user",
         methods=["POST"],
     )
@@ -175,7 +165,7 @@ class WalaaConnectorController(http.Controller):
 
     @http.route(
         "/walaa/pos/order_requests_today",
-        type="json",
+        type="jsonrpc",
         auth="user",
         methods=["POST"],
     )
@@ -219,7 +209,7 @@ class WalaaConnectorController(http.Controller):
 
     @http.route(
         "/walaa/pos/order_request_select",
-        type="json",
+        type="jsonrpc",
         auth="user",
         methods=["POST"],
     )
@@ -263,6 +253,7 @@ class WalaaConnectorController(http.Controller):
                 requests.post(
                     notify_url,
                     headers={"X-Brand-Token": company.walaa_brand_token},
+                    timeout=10,
                 )
             except Exception:
                 _logger.warning(
@@ -274,7 +265,6 @@ class WalaaConnectorController(http.Controller):
             "name": partner.name,
             "display_name": partner.display_name or partner.name,
             "phone": partner.phone,
-            "mobile": partner.mobile,
         }
         return {
             "partner": partner_payload,

@@ -14,7 +14,7 @@ class SaleOrder(models.Model):
     def action_confirm(self):
         result = super().action_confirm()
         for order in self:
-            if order.state not in ("sale", "done"):
+            if order.state != "sale":
                 continue
             order._walaa_send_order_payload_direct()
 
@@ -72,7 +72,7 @@ class SaleOrder(models.Model):
                     "discount": line.discount,
                     "subtotal": line.price_subtotal,
                     "total": line.price_total,
-                    "tax_percent": sum(line.tax_id.mapped("amount")),
+                    "tax_percent": sum(line.tax_ids.mapped("amount")),
                 }
             )
 

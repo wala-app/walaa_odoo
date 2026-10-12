@@ -7,8 +7,9 @@ import { ProductScreen } from "@point_of_sale/app/screens/product_screen/product
 import { ControlButtons } from "@point_of_sale/app/screens/product_screen/control_buttons/control_buttons";
 import { Component, useState, useEffect } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
-import { usePos } from "@point_of_sale/app/store/pos_hook";
+import { usePos } from "@point_of_sale/app/hooks/pos_hook";
 import { Dialog } from "@web/core/dialog/dialog";
+import { rpc } from "@web/core/network/rpc";
 
 const SKIP_REWARD = "__SKIP_REWARD__";
 
@@ -38,12 +39,12 @@ function getOrderProductChoices(order) {
         const productId = product?.id;
         if (!productId) continue;
         const lineQty =
-            (typeof line.get_quantity === "function" && line.get_quantity()) || line.qty || 0;
+            (typeof line.getQuantity === "function" && line.getQuantity()) || line.qty || 0;
         if (productMap.has(productId)) {
             productMap.get(productId).qty += lineQty;
         } else {
             const productName =
-                (typeof line.get_full_product_name === "function" && line.get_full_product_name()) ||
+                (typeof line.getFullProductName === "function" && line.getFullProductName()) ||
                 product.display_name ||
                 product.name ||
                 "Product";
@@ -75,18 +76,23 @@ function askProductForGift(dialog, gift, productChoices) {
 
 /**
  * Reset any discounts previously applied by Walaa gifts on the order.
+ * The affected products are derived from the previously stored gifts so this
+ * also works after the POS was reloaded.
  */
-function clearGiftDiscounts(order) {
-    const applied = new Set(order.walaaGiftAppliedProductIds || []);
+function clearGiftDiscounts(order, previousGifts) {
+    const applied = new Set(
+        (previousGifts || [])
+            .filter((gift) => gift.usedOnProductId)
+            .map((gift) => String(gift.usedOnProductId))
+    );
     if (!applied.size) return;
     for (const line of order.lines || []) {
         if (applied.has(String(line.product_id?.id))) {
-            if (typeof line.set_discount === "function") {
-                line.set_discount(0);
+            if (typeof line.setDiscount === "function") {
+                line.setDiscount(0);
             }
         }
     }
-    order.walaaGiftAppliedProductIds = [];
 }
 
 /**
@@ -96,8 +102,8 @@ function clearGiftDiscounts(order) {
  *   PRODUCT / NON_PRODUCT → make 1 unit free (freeUnits accumulate across gifts)
  *   DISCOUNT              → percentage or fixed discount (values accumulate)
  */
-function applyGiftsToOrder(order, gifts) {
-    clearGiftDiscounts(order);
+function applyGiftsToOrder(order, gifts, previousGifts) {
+    clearGiftDiscounts(order, previousGifts);
     if (!gifts?.length) return;
 
     // Group gifts by the product line they target
@@ -109,8 +115,6 @@ function applyGiftsToOrder(order, gifts) {
         byProduct.get(key).push(gift);
     }
 
-    const appliedProductIds = [];
-
     for (const [productId, productGifts] of byProduct) {
         const line = (order.lines || []).find(
             (l) => String(l.product_id?.id) === productId
@@ -118,11 +122,10 @@ function applyGiftsToOrder(order, gifts) {
         if (!line) continue;
 
         const qty =
-            typeof line.get_quantity === "function" ? line.get_quantity() : line.qty || 1;
+            typeof line.getQuantity === "function" ? line.getQuantity() : line.qty || 1;
+        // Odoo 19 dropped the line unit-price getter; read the field directly.
         const unitPrice =
-            typeof line.get_unit_price === "function"
-                ? line.get_unit_price()
-                : line.price_unit || 0;
+            typeof line.getUnitPrice === "function" ? line.getUnitPrice() : line.price_unit || 0;
 
         // Accumulate free units and additive discount %
         let totalFreeUnits = 0;
@@ -149,9 +152,8 @@ function applyGiftsToOrder(order, gifts) {
 
         discountPct = Math.min(Math.max(discountPct, 0), 100);
 
-        if (typeof line.set_discount === "function") {
-            line.set_discount(discountPct);
-            appliedProductIds.push(productId);
+        if (typeof line.setDiscount === "function") {
+            line.setDiscount(discountPct);
             console.log(
                 `[Walaa] Applied ${discountPct.toFixed(2)}% discount to product`,
                 productId,
@@ -159,50 +161,19 @@ function applyGiftsToOrder(order, gifts) {
             );
         }
     }
-
-    order.walaaGiftAppliedProductIds = appliedProductIds;
 }
 
+// Server errors raise an RPCError (and offline raises ConnectionLostError); callers catch them.
 async function fetchCustomerGifts(customerPhone) {
-    const response = await fetch("/walaa/pos/customer_gifts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            jsonrpc: "2.0",
-            method: "call",
-            params: { customer_phone: customerPhone },
-        }),
-    });
-    const data = await response.json();
-    return data?.result || null;
+    return (await rpc("/walaa/pos/customer_gifts", { customer_phone: customerPhone })) || null;
 }
 
 async function fetchOrderRequestsToday() {
-    const response = await fetch("/walaa/pos/order_requests_today", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            jsonrpc: "2.0",
-            method: "call",
-            params: {},
-        }),
-    });
-    const data = await response.json();
-    return data?.result || null;
+    return (await rpc("/walaa/pos/order_requests_today", {})) || null;
 }
 
 async function resolveOrderRequestSelection(orderRequest) {
-    const response = await fetch("/walaa/pos/order_request_select", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            jsonrpc: "2.0",
-            method: "call",
-            params: { order_request: orderRequest },
-        }),
-    });
-    const data = await response.json();
-    return data?.result || null;
+    return (await rpc("/walaa/pos/order_request_select", { order_request: orderRequest })) || null;
 }
 
 function askOrderRequest(dialog, orderRequests) {
@@ -221,51 +192,60 @@ function getPosPartnerById(pos, partnerId) {
         const fromModel = pos.models["res.partner"].get(partnerId);
         if (fromModel) return fromModel;
     }
-    if (pos?.db?.get_partner_by_id) {
-        const fromDb = pos.db.get_partner_by_id(partnerId);
-        if (fromDb) return fromDb;
+    return null;
+}
+
+/**
+ * Load a backend-created/updated partner into the POS frontend models.
+ * Odoo 19 removed the legacy `pos.db` cache; records are loaded through the
+ * `pos.data` service, which returns proper model records that can be assigned
+ * to an order via `order.setPartner(...)`.
+ */
+async function loadPartnerIntoPos(pos, partnerPayload) {
+    const partnerId = partnerPayload?.id;
+    if (!partnerId) return null;
+
+    const existing = getPosPartnerById(pos, partnerId);
+    if (existing) return existing;
+
+    if (pos?.data?.read) {
+        try {
+            const records = await pos.data.read("res.partner", [partnerId]);
+            const loaded = (Array.isArray(records) && records[0]) || getPosPartnerById(pos, partnerId);
+            if (loaded) return loaded;
+        } catch (err) {
+            console.error("[Walaa] Failed to load partner into POS models:", err);
+        }
     }
     return null;
 }
 
-function upsertPartnerInPosCache(pos, partnerPayload) {
-    if (!partnerPayload?.id) return null;
-    if (pos?.db?.add_partners) {
-        pos.db.add_partners([partnerPayload]);
-    }
-    return getPosPartnerById(pos, partnerPayload.id) || partnerPayload;
-}
-
 function openGiftSelectionDialog(dialog, pos, gifts) {
-    const order = pos.get_order();
+    const order = pos.getOrder();
     if (!order || !Array.isArray(gifts) || !gifts.length) {
         return;
     }
     dialog.add(WalaaGiftDialog, {
         gifts,
-        alreadySelected: order?.walaaUsedGifts || [],
+        alreadySelected: order.getWalaaUsedGifts(),
         onConfirm: async (chosen) => {
-            const currentOrder = pos.get_order();
+            const currentOrder = pos.getOrder();
             if (!currentOrder) {
                 return;
             }
+            const previousGifts = currentOrder.getWalaaUsedGifts();
             const mappedGifts = await mapSelectedGiftsToProducts(
                 dialog,
                 currentOrder,
                 chosen,
-                currentOrder.walaaUsedGifts || []
+                previousGifts
             );
             if (mappedGifts === false) {
                 return;
             }
-            currentOrder.walaaUsedGifts = mappedGifts;
-            applyGiftsToOrder(currentOrder, mappedGifts);
-            if (typeof currentOrder.save_to_db === "function") {
-                currentOrder.save_to_db();
-            }
-            if (typeof currentOrder.trigger === "function") {
-                currentOrder.trigger("change");
-            }
+            applyGiftsToOrder(currentOrder, mappedGifts, previousGifts);
+            currentOrder.setWalaaUsedGifts(mappedGifts);
+            // Odoo 19 models are reactive and auto-persisted; no save_to_db/trigger needed.
             console.log("[Walaa] Gifts selected and applied:", mappedGifts);
         },
     });
@@ -391,32 +371,26 @@ async function mapSelectedGiftsToProducts(dialog, order, selectedGifts, alreadyM
 }
 
 // ─── Extend PosOrder to carry multiple Walaa gifts ──────────────────────────
+// Gifts live in the ``used_gifts`` field (JSON text). pos.order loads all of its
+// fields in the POS, so the value is part of the record's raw data: it is kept in
+// IndexedDB across reloads, sent by the standard serializeForORM(), and restored
+// from the server for draft orders. A plain JS property would be lost on reload.
 
 patch(PosOrder.prototype, {
-    setup() {
-        super.setup(...arguments);
-        this.walaaUsedGifts = []; // array of gift objects
-        this.walaaGiftAppliedProductIds = []; // product ids that have walaa discounts on their lines
-        const vals = arguments[0] || {};
-        if (vals.used_gifts) {
-            try {
-                const parsed = JSON.parse(vals.used_gifts);
-                this.walaaUsedGifts = Array.isArray(parsed) ? parsed : [];
-            } catch {
-                this.walaaUsedGifts = [];
-            }
+    getWalaaUsedGifts() {
+        if (!this.used_gifts) {
+            return [];
+        }
+        try {
+            const parsed = JSON.parse(this.used_gifts);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
         }
     },
 
-    serialize() {
-        const json = super.serialize(...arguments);
-        if (this.walaaUsedGifts && this.walaaUsedGifts.length > 0) {
-            json.used_gifts = JSON.stringify(this.walaaUsedGifts);
-        } else {
-            json.used_gifts = false;
-        }
-        console.log("[Walaa] serialize used_gifts:", json.used_gifts);
-        return json;
+    setWalaaUsedGifts(gifts) {
+        this.used_gifts = gifts?.length ? JSON.stringify(gifts) : false;
     },
 });
 
@@ -611,9 +585,10 @@ class WalaaLoadingDialog extends Component {
 
 patch(ControlButtons.prototype, {
     async onClickWalaaGifts() {
-        const order = this.pos.get_order();
-        const partner = order?.get_partner?.();
-        const phone = cleanPhone(partner?.phone || partner?.mobile);
+        const order = this.pos.getOrder();
+        const partner = order?.getPartner?.();
+        // Odoo 19 removed res.partner.mobile; phone is the only number field.
+        const phone = cleanPhone(partner?.phone);
         if (!phone) {
             this.notification.add("Select a customer with phone number first.", {
                 type: "warning",
@@ -684,12 +659,12 @@ patch(ControlButtons.prototype, {
                 return;
             }
 
-            const order = this.pos.get_order();
+            const order = this.pos.getOrder();
             if (!order) {
                 this.notification.add("No active order.", { type: "warning" });
                 return;
             }
-            const partner = upsertPartnerInPosCache(this.pos, resolved.partner);
+            const partner = await loadPartnerIntoPos(this.pos, resolved.partner);
             if (!partner) {
                 this.notification.add("Customer could not be assigned.", {
                     type: "danger",
@@ -697,13 +672,8 @@ patch(ControlButtons.prototype, {
                 return;
             }
 
-            order.set_partner(partner);
-            if (typeof order.save_to_db === "function") {
-                order.save_to_db();
-            }
-            if (typeof order.trigger === "function") {
-                order.trigger("change");
-            }
+            order.setPartner(partner);
+            // Odoo 19 models are reactive and auto-persisted; no save_to_db/trigger needed.
 
             this.notification.add(
                 resolved.created
@@ -745,7 +715,7 @@ patch(ProductScreen.prototype, {
                 if (partner.id === lastPartnerId) return;
                 lastPartnerId = partner.id;
 
-                const phone = cleanPhone(partner.phone || partner.mobile);
+                const phone = cleanPhone(partner.phone);
                 if (!phone) return;
 
                 console.log("[Walaa] Customer selected with phone:", phone);
@@ -756,7 +726,7 @@ patch(ProductScreen.prototype, {
                     notification,
                 });
             },
-            () => [pos.get_order()?.get_partner()]
+            () => [pos.getOrder()?.getPartner()]
         );
     },
 });

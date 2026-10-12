@@ -224,11 +224,11 @@
        t-inherit="point_of_sale.ControlButtons"
        t-inherit-mode="extension">
         <xpath expr="//div[contains(@class, 'control-buttons-modal')]" position="inside">
-            <button class="btn btn-secondary btn-lg py-5" t-on-click="onClickWalaaGifts">
+            <button t-att-class="buttonClass" t-on-click="onClickWalaaGifts">
                 <i class="fa fa-gift me-1"/>
                 Walaa Gifts
             </button>
-            <button class="btn btn-secondary btn-lg py-5" t-on-click="onClickWalaaOrderRequests">
+            <button t-att-class="buttonClass" t-on-click="onClickWalaaOrderRequests">
                 <i class="fa fa-list me-1"/>
                 Walaa Order Requests
             </button>

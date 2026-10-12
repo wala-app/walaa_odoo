@@ -12,13 +12,11 @@ class ResCompany(models.Model):
     walaa_enabled = fields.Boolean(string="Enable Walaa", default=False)
     walaa_brand_token = fields.Char(string="Walaa Brand Token", copy=False)
 
-    _sql_constraints = [
-        (
-            "walaa_brand_token_unique",
-            "unique(walaa_brand_token)",
-            "Walaa brand token must be unique.",
-        ),
-    ]
+    # Odoo 19 ignores ``_sql_constraints``; constraints are declared with models.Constraint.
+    _walaa_brand_token_unique = models.Constraint(
+        "unique(walaa_brand_token)",
+        "Walaa brand token must be unique.",
+    )
 
     def _walaa_compose_url(self, path):
         self.ensure_one()

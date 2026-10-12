@@ -21,22 +21,10 @@ class PosOrder(models.Model):
 
     walaa_sent = fields.Boolean(string="Sent To Walaa", default=False, copy=False)
     walaa_last_error = fields.Text(string="Walaa Last Error", copy=False)
+    # Populated from the POS frontend: pos.order loads all fields into the POS, so
+    # walaa_pos.js stores the gifts JSON directly on this field and the standard
+    # ``serializeForORM()`` / ``_process_order`` flow saves it.
     used_gifts = fields.Text(string="Walaa Used Gifts", copy=False)
-
-    @api.model
-    def _order_fields(self, ui_order):
-        """Persist used gifts from POS JSON before any sync is triggered."""
-        vals = super()._order_fields(ui_order)
-        used_gifts = ui_order.get("used_gifts") or ui_order.get("usedGifts")
-        if isinstance(used_gifts, list):
-            used_gifts = json.dumps(used_gifts)
-        if used_gifts:
-            vals["used_gifts"] = used_gifts
-            _logger.info(
-                "Walaa POS used_gifts received from UI for order %s",
-                ui_order.get("name") or ui_order.get("uid"),
-            )
-        return vals
 
     def write(self, vals):
         result = super().write(vals)
@@ -51,7 +39,7 @@ class PosOrder(models.Model):
         return orders
 
     def _walaa_try_send_ready_orders(self):
-        ready_states = {"paid", "done", "invoiced"}
+        ready_states = {"paid", "done"}
         for order in self:
             if order.walaa_sent or order.state not in ready_states:
                 continue
