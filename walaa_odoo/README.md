@@ -9,7 +9,7 @@ This module connects Odoo Sales and Products with your Walaa app.
 - Returns full products directly in the Odoo response (pull mode, no paging).
 - Adds a manual button in Odoo settings to push all products to Walaa, in batches of 50 products per request.
 - Sends confirmed Sales Orders and paid PoS Orders to Walaa immediately.
-- Uses fixed outbound paths (not editable): `/api/odoo/orders` and `/api/odoo/products/sync`.
+- Uses a fixed Walaa API base URL (`https://api.walaa.app`) and fixed outbound paths (not editable): `/api/odoo/orders` and `/api/odoo/products/sync`.
 - **POS Gifts**: When a customer with a phone number is selected in the POS, fetches available Walaa rewards/gifts, lets the cashier select one or more gifts, then choose which product each gift is used for.
 
 ## Requirements
@@ -21,7 +21,7 @@ This module connects Odoo Sales and Products with your Walaa app.
 
 ## Installation
 
-1. Copy module folder `walaa` into your Odoo addons path.
+1. Copy module folder `walaa_odoo` into your Odoo addons path.
 2. Restart Odoo service.
 3. In Odoo UI:
    - Go to `Apps`.
@@ -32,7 +32,7 @@ This module connects Odoo Sales and Products with your Walaa app.
 ### Optional CLI install
 
 ```bash
-odoo-bin -d <database_name> -i walaa --addons-path=<your_addons_paths>
+odoo-bin -d <database_name> -i walaa_odoo --addons-path=<your_addons_paths>
 ```
 
 ### If upgrading from an older version
@@ -40,7 +40,7 @@ odoo-bin -d <database_name> -i walaa --addons-path=<your_addons_paths>
 1. Upgrade module:
 
 ```bash
-odoo-bin -d <database_name> -u walaa --addons-path=<your_addons_paths>
+odoo-bin -d <database_name> -u walaa_odoo --addons-path=<your_addons_paths>
 ```
 
 ## Configuration
@@ -51,7 +51,6 @@ odoo-bin -d <database_name> -u walaa --addons-path=<your_addons_paths>
 4. Fill fields:
    - `Enable Walaa`: enable integration for this company.
    - `Walaa Brand Token`: unique brand token for this company.
-   - `Walaa Base URL`: base URL of Walaa API, example `https://api.walaa.example`.
 5. Click `Save`.
 6. Click `Test Walaa Connection`.
 7. For immediate product push, click `Sync All Products Now`.
@@ -119,25 +118,11 @@ What happens:
   Batches already sent stay in Walaa; click the button again to resend everything.
 - Headers include `Content-Type`, `X-Brand-Token`, and `Idempotency-Key`.
 
-### Product Sync test in VS Code
-
-1. Install VS Code extension `REST Client` (by Huachao Mao).
-2. Open file `vscode_product_sync_test.http` in this module.
-3. Edit variables at top of file:
-   - `@baseUrl` (your Odoo URL)
-   - `@brandToken` (a valid brand token from Odoo settings)
-4. Click `Send Request` above each request.
-
-Test file includes:
-- Success full product pull
-- Missing token (`400`)
-- Unknown token (`404`)
-
 ### 2) Order sync (Odoo Sales + PoS -> Walaa)
 
-When a Sales Order is confirmed or a PoS Order reaches paid/done/invoiced:
+When a Sales Order is confirmed or a PoS Order reaches paid/done:
 
-- Odoo immediately sends order payload to `Walaa Base URL + /api/odoo/orders`.
+- Odoo immediately sends order payload to `https://api.walaa.app/api/odoo/orders`.
 - Headers include:
   - `Content-Type: application/json`
   - `X-Brand-Token: <company_brand_token>`
@@ -207,7 +192,7 @@ When a customer with a phone number is selected in the POS:
 #### Walaa API — fetch customer gifts
 
 - Method: `GET`
-- URL: `<walaa_base_url>/api/odoo/customers/{customer_uid}/gifts`
+- URL: `https://api.walaa.app/api/odoo/customers/{customer_uid}/gifts`
 - Header: `X-Brand-Token: <brand_token>`
 - Path param: `customer_uid` — customer UID or international phone (e.g. `+96891234567`)
 
@@ -270,18 +255,18 @@ The cashier can open a list of today's Walaa order requests directly from the PO
 
 #### Flow
 
-1. Cashier taps **Order Requests** in the POS control buttons.
-2. Odoo fetches today's requests from the Walaa API and displays them in a dialog.
-3. Cashier selects one request and taps **Apply to Order**.
+1. Cashier opens the POS **Actions** menu and taps **Walaa Order Requests**.
+2. Odoo fetches today's requests from the Walaa API and displays them in a dialog (searchable by customer name or phone).
+3. Cashier selects one request and taps **Select Request**.
 4. Odoo searches for a `res.partner` matching the request's phone number:
    - **Found** — the existing customer is set on the current order.
    - **Not found** — a new customer is created with the provided name and phone number, then set on the order.
-5. The `documentId` of the selected request is stored on the order and included in the order payload sent to Walaa.
+5. Odoo notifies Walaa that the request was picked up (`POST /api/order/requests/{documentId}`), which discards the request on the Walaa side. This call is best-effort: a failure is logged and does not block the order.
 
 #### Walaa API — fetch today's order requests
 
 - Method: `GET`
-- URL: `<walaa_base_url>/api/odoo/order-requests/today`
+- URL: `https://api.walaa.app/api/odoo/order-requests/today`
 - Header: `X-Brand-Token: <brand_token>`
 
 Success response (`200`):
@@ -309,31 +294,8 @@ Success response (`200`):
 
 | URL | Purpose |
 |-----|---------|
-| `POST /walaa/pos/order_requests` | Proxies the Walaa API and returns the list to the POS |
-| `POST /walaa/pos/resolve_customer` | Finds or creates a `res.partner` by phone; returns `id`, `name`, `phone`, `is_new` |
-
-#### Order payload — `documentId` field
-
-When an order request is selected, the linked `documentId` is serialized on the POS order as `walaa_order_request_document_id` and included in the order sync payload sent to Walaa. It is `false` when no request was linked.
-
-```json
-{
-  "event": "pos_order_paid",
-  "order": {
-    "id": 42,
-    "walaa_order_request_document_id": "abc123",
-    ...
-  }
-}
-```
-
-#### Status badge colors in the dialog
-
-| Status | Color |
-|--------|-------|
-| `confirmed` | Green |
-| `pending` | Yellow |
-| Any other | Grey |
+| `POST /walaa/pos/order_requests_today` | Proxies the Walaa API and returns the list to the POS |
+| `POST /walaa/pos/order_request_select` | Finds or creates a `res.partner` by phone; returns `partner` (`id`, `name`, `display_name`, `phone`), `created` and `orderRequest` |
 
 ## Delivery Behavior
 
@@ -364,10 +326,10 @@ Possible responses from `POST /walaa/sync/products`:
 
 1. **Order not sent**
    - Ensure company has Walaa connector enabled.
-   - Ensure Sales Order reached `sale`/`done` or PoS Order reached `paid`/`done`/`invoiced`.
+   - Ensure Sales Order reached `sale` or PoS Order reached `paid`/`done`.
 
 2. **Order push failing with HTTP errors**
-   - Verify `Walaa Base URL` is correct.
+   - Verify the Odoo server can reach `https://api.walaa.app`.
    - Verify Walaa server can accept Odoo IP / traffic.
    - Inspect Odoo server logs.
 
@@ -383,7 +345,7 @@ Possible responses from `POST /walaa/sync/products`:
 5. **Install/upgrade still fails after code fix**
    - Restart Odoo service.
    - Update Apps List from Odoo Apps menu.
-   - Upgrade module again: `odoo-bin -d <database_name> -u walaa --addons-path=<your_addons_paths>`.
+   - Upgrade module again: `odoo-bin -d <database_name> -u walaa_odoo --addons-path=<your_addons_paths>`.
 
 ## Security Recommendations
 

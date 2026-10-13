@@ -263,6 +263,7 @@ class WalaaConnectorController(http.Controller):
                 requests.post(
                     notify_url,
                     headers={"X-Brand-Token": company.walaa_brand_token},
+                    timeout=10,
                 )
             except Exception:
                 _logger.warning(
