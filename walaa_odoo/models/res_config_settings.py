@@ -53,36 +53,44 @@ class ResConfigSettings(models.TransientModel):
         company = self.company_id
         company._walaa_validate_outbound_config(require_brand_token=True)
 
-        payload = company._walaa_build_full_product_sync_payload(
-            trigger_payload={"source": "odoo_manual_button"}
-        )
         url = company._walaa_product_sync_url()
-        headers = company._walaa_outbound_headers(
-            idempotency_key=f"manual-product-sync-{company.id}-{fields.Datetime.now().timestamp()}"
-        )
+        sync_id = f"manual-product-sync-{company.id}-{fields.Datetime.now().timestamp()}"
+        sent = 0
+        total = 0
+        pages = 0
 
-        try:
-            response = requests.post(url, json=payload, headers=headers, timeout=60)
-        except requests.RequestException as exc:
-            raise UserError(_("Product sync failed: %s") % str(exc)) from exc
+        for payload in company._walaa_build_product_sync_batches(
+            trigger_payload={"source": "odoo_manual_button"}
+        ):
+            total, pages = payload["total_products"], payload["total_pages"]
+            page = payload["page"]
+            headers = company._walaa_outbound_headers(idempotency_key=f"{sync_id}-page-{page}")
+            try:
+                response = requests.post(url, json=payload, headers=headers, timeout=60)
+            except requests.RequestException as exc:
+                raise UserError(
+                    _("Product sync failed on batch %(page)s/%(pages)s (%(sent)s of %(total)s products already sent): %(error)s",
+                      page=page, pages=pages, sent=sent, total=total, error=str(exc))
+                ) from exc
 
-        if 200 <= response.status_code < 300:
-            return {
-                "type": "ir.actions.client",
-                "tag": "display_notification",
-                "params": {
-                    "title": _("Walaa"),
-                    "message": _(
-                        "Product sync sent successfully (%s products)."
-                    )
-                    % payload["total_products"],
-                    "type": "success",
-                    "sticky": False,
-                },
-            }
+            if not (200 <= response.status_code < 300):
+                raise UserError(
+                    _("Product sync failed on batch %(page)s/%(pages)s with HTTP %(status)s (%(sent)s of %(total)s products already sent): %(body)s",
+                      page=page, pages=pages, status=response.status_code, sent=sent, total=total,
+                      body=(response.text or "")[:1000])
+                )
+            sent += len(payload["products"])
 
-        body = (response.text or "")[:1000]
-        raise UserError(
-            _("Product sync failed with HTTP %s: %s")
-            % (response.status_code, body)
-        )
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Walaa"),
+                "message": _(
+                    "Product sync sent successfully (%(total)s products in %(pages)s batches).",
+                    total=total, pages=pages,
+                ),
+                "type": "success",
+                "sticky": False,
+            },
+        }
