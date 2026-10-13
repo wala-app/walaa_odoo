@@ -1,7 +1,7 @@
 {
     "name": "Walaa",
     "summary": "Sync products and confirmed orders from Odoo to Walaa",
-    "version": "20.0.2.3.14",
+    "version": "20.0.2.4.0",
     "category": "Sales",
     "author": "Walaa",
     "website": "https://walaa.app",

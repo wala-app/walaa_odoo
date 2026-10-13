@@ -8,6 +8,8 @@ class ResCompany(models.Model):
     WALAA_BASE_URL = "https://api.walaa.app"
     WALAA_ORDER_PATH = "/api/odoo/orders"
     WALAA_PRODUCT_SYNC_PATH = "/api/odoo/products/sync"
+    # "Sync All Products Now" sends the catalog in pages of this many products.
+    WALAA_PRODUCT_SYNC_BATCH_SIZE = 50
 
     walaa_enabled = fields.Boolean(string="Enable Walaa", default=False)
     walaa_brand_token = fields.Char(string="Walaa Brand Token", copy=False)
@@ -52,10 +54,9 @@ class ResCompany(models.Model):
         self.ensure_one()
         return self._walaa_compose_url(self.WALAA_PRODUCT_SYNC_PATH)
 
-    def _walaa_build_full_product_sync_payload(self, trigger_payload=None):
+    def _walaa_syncable_products(self):
+        """Active saleable products of this company (or shared), oldest first."""
         self.ensure_one()
-        trigger_payload = trigger_payload or {}
-        product_model = self.env["product.product"].sudo()
         domain = [
             ("active", "=", True),
             ("sale_ok", "=", True),
@@ -63,33 +64,44 @@ class ResCompany(models.Model):
             ("company_id", "=", False),
             ("company_id", "=", self.id),
         ]
-        products = product_model.search(domain, order="id asc")
-        return {
-            "event": "product_sync",
-            "sync_mode": "full_push",
-            "company": {
-                "id": self.id,
-                "name": self.name,
-            },
-            "trigger": trigger_payload,
-            "total_products": len(products),
-            "products": [
-                self._walaa_serialize_product(product, self.currency_id.name) for product in products
-            ],
-        }
+        return self.env["product.product"].sudo().search(domain, order="id asc")
+
+    def _walaa_build_product_sync_batches(self, trigger_payload=None, batch_size=None):
+        """Yield the full-push payload in pages of ``batch_size`` products.
+
+        Walaa upserts every product it receives, so the catalog can be sent in several
+        requests. Images are serialized one page at a time to keep requests small.
+        An empty catalog still yields one (empty) page.
+        """
+        self.ensure_one()
+        trigger_payload = trigger_payload or {}
+        batch_size = batch_size or self.WALAA_PRODUCT_SYNC_BATCH_SIZE
+        products = self._walaa_syncable_products()
+        total = len(products)
+        total_pages = max(1, -(-total // batch_size))
+        for page in range(1, total_pages + 1):
+            chunk = products[(page - 1) * batch_size : page * batch_size]
+            yield {
+                "event": "product_sync",
+                "sync_mode": "full_push",
+                "company": {
+                    "id": self.id,
+                    "name": self.name,
+                },
+                "trigger": trigger_payload,
+                "total_products": total,
+                "page": page,
+                "total_pages": total_pages,
+                "page_size": batch_size,
+                "products": [
+                    self._walaa_serialize_product(product, self.currency_id.name) for product in chunk
+                ],
+            }
 
     def _walaa_build_product_sync_response(self, trigger_payload=None):
         self.ensure_one()
         trigger_payload = trigger_payload or {}
-        product_model = self.env["product.product"].sudo()
-        domain = [
-            ("active", "=", True),
-            ("sale_ok", "=", True),
-            "|",
-            ("company_id", "=", False),
-            ("company_id", "=", self.id),
-        ]
-        products = product_model.search(domain, order="id asc")
+        products = self._walaa_syncable_products()
 
         return {
             "event": "product_sync",

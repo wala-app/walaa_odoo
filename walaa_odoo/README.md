@@ -7,7 +7,7 @@ This module connects Odoo Sales and Products with your Walaa app.
 - Stores Walaa configuration per Odoo company.
 - Receives product sync triggers from Walaa (`POST /walaa/sync/products`).
 - Returns full products directly in the Odoo response (pull mode, no paging).
-- Adds a manual button in Odoo settings to push all products to Walaa in one request.
+- Adds a manual button in Odoo settings to push all products to Walaa, in batches of 50 products per request.
 - Sends confirmed Sales Orders and paid PoS Orders to Walaa immediately.
 - Uses a fixed Walaa API base URL (`https://api.walaa.app`) and fixed outbound paths (not editable): `/api/odoo/orders` and `/api/odoo/products/sync`.
 - **POS Gifts**: When a customer with a phone number is selected in the POS, fetches available Walaa rewards/gifts, lets the cashier select one or more gifts, then choose which product each gift is used for.
@@ -111,7 +111,11 @@ From Odoo:
 
 What happens:
 
-- Odoo sends one full payload (all active + saleable products) to `https://api.walaa.app/api/odoo/products/sync`.
+- Odoo sends all active + saleable products to `https://api.walaa.app/api/odoo/products/sync` in batches of 50 products,
+  one request per batch. Each request carries `total_products`, `page`, `total_pages` and `page_size`, and its own
+  `Idempotency-Key`. Walaa creates or updates the products of each batch.
+- If a batch fails, the sync stops and the error says which batch failed and how many products were already sent.
+  Batches already sent stay in Walaa; click the button again to resend everything.
 - Headers include `Content-Type`, `X-Brand-Token`, and `Idempotency-Key`.
 
 ### 2) Order sync (Odoo Sales + PoS -> Walaa)
@@ -297,7 +301,7 @@ Success response (`200`):
 
 - No cron is used for sending requests.
 - Product sync is pull-response from Odoo.
-- Manual product push sends all products in one request (no paging).
+- Manual product push sends the catalog in batches of 50 products, one request per batch.
 - Sales + PoS order push is synchronous (direct) from Odoo to Walaa.
 - On failure, Odoo writes warning/error logs in server logs (does not block Sales/PoS flows).
 
