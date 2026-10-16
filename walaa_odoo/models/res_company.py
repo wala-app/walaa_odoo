@@ -9,7 +9,7 @@ class ResCompany(models.Model):
     WALAA_ORDER_PATH = "/api/odoo/orders"
     WALAA_PRODUCT_SYNC_PATH = "/api/odoo/products/sync"
     # "Sync All Products Now" sends the catalog in pages of this many products.
-    WALAA_PRODUCT_SYNC_BATCH_SIZE = 50
+    WALAA_PRODUCT_SYNC_BATCH_SIZE = 10
 
     walaa_enabled = fields.Boolean(string="Enable Walaa", default=False)
     walaa_brand_token = fields.Char(string="Walaa Brand Token", copy=False)
