@@ -1,3 +1,5 @@
+import re
+
 import requests
 
 from odoo import _, fields, models
@@ -42,11 +44,20 @@ class ResConfigSettings(models.TransientModel):
                 },
             }
 
-        body = (response.text or "")[:1000]
+        body = self._walaa_error_detail(response)
         raise UserError(
             _("Walaa connection test failed with HTTP %s: %s")
             % (response.status_code, body)
         )
+
+    @staticmethod
+    def _walaa_error_detail(response):
+        """Short error text: the <title> of an HTML error page (proxy/Cloudflare), else the body."""
+        text = (response.text or "").strip()
+        if "<html" in text[:300].lower():
+            match = re.search(r"<title>(.*?)</title>", text, re.IGNORECASE | re.DOTALL)
+            text = match.group(1).strip() if match else "HTML error page"
+        return text[:1000]
 
     def action_sync_all_products_now(self):
         self.ensure_one()
@@ -73,11 +84,16 @@ class ResConfigSettings(models.TransientModel):
                       page=page, pages=pages, sent=sent, total=total, error=str(exc))
                 ) from exc
 
+            if response.status_code == 413:
+                raise UserError(
+                    _("Product sync failed on batch %(page)s/%(pages)s: the Walaa server rejected the request as too large (HTTP 413). %(sent)s of %(total)s products were already sent.",
+                      page=page, pages=pages, sent=sent, total=total)
+                )
             if not (200 <= response.status_code < 300):
                 raise UserError(
                     _("Product sync failed on batch %(page)s/%(pages)s with HTTP %(status)s (%(sent)s of %(total)s products already sent): %(body)s",
                       page=page, pages=pages, status=response.status_code, sent=sent, total=total,
-                      body=(response.text or "")[:1000])
+                      body=self._walaa_error_detail(response))
                 )
             sent += len(payload["products"])
 

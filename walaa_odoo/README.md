@@ -7,7 +7,7 @@ This module connects Odoo Sales and Products with your Walaa app.
 - Stores Walaa configuration per Odoo company.
 - Receives product sync triggers from Walaa (`POST /walaa/sync/products`).
 - Returns full products directly in the Odoo response (pull mode, no paging).
-- Adds a manual button in Odoo settings to push all products to Walaa, in batches of 10 products per request.
+- Adds a manual button in Odoo settings to push all products to Walaa, in batches of at most 10 products and about 2 MB per request.
 - Sends confirmed Sales Orders and paid PoS Orders to Walaa immediately.
 - Uses a fixed Walaa API base URL (`https://api.walaa.app`) and fixed outbound paths (not editable): `/api/odoo/orders` and `/api/odoo/products/sync`.
 - **POS Gifts**: When a customer with a phone number is selected in the POS, fetches available Walaa rewards/gifts, lets the cashier select one or more gifts, then choose which product each gift is used for.
@@ -111,8 +111,10 @@ From Odoo:
 
 What happens:
 
-- Odoo sends all active + saleable products to `https://api.walaa.app/api/odoo/products/sync` in batches of 10 products,
-  one request per batch. Each request carries `total_products`, `page`, `total_pages` and `page_size`, and its own
+- Odoo sends all active + saleable products to `https://api.walaa.app/api/odoo/products/sync` in batches of at most 10 products
+  and at most about 2 MB of JSON, one request per batch (the Walaa API and Cloudflare reject larger bodies with
+  HTTP 413). A product whose full-size image alone would exceed that is sent with a smaller Odoo image size
+  (1024, 512, 256 or 128 px). Each request carries `total_products`, `page`, `total_pages` and `page_size`, and its own
   `Idempotency-Key`. Walaa creates or updates the products of each batch.
 - If a batch fails, the sync stops and the error says which batch failed and how many products were already sent.
   Batches already sent stay in Walaa; click the button again to resend everything.
@@ -301,7 +303,7 @@ Success response (`200`):
 
 - No cron is used for sending requests.
 - Product sync is pull-response from Odoo.
-- Manual product push sends the catalog in batches of 10 products, one request per batch.
+- Manual product push sends the catalog in batches of at most 10 products and about 2 MB, one request per batch.
 - Sales + PoS order push is synchronous (direct) from Odoo to Walaa.
 - On failure, Odoo writes warning/error logs in server logs (does not block Sales/PoS flows).
 
