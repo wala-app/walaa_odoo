@@ -1,3 +1,5 @@
+import json
+
 from odoo import _, fields, models
 from odoo.exceptions import ValidationError
 
@@ -8,8 +10,15 @@ class ResCompany(models.Model):
     WALAA_BASE_URL = "https://api.walaa.app"
     WALAA_ORDER_PATH = "/api/odoo/orders"
     WALAA_PRODUCT_SYNC_PATH = "/api/odoo/products/sync"
-    # "Sync All Products Now" sends the catalog in pages of this many products.
+    # "Sync All Products Now" sends the catalog in pages of at most this many products...
     WALAA_PRODUCT_SYNC_BATCH_SIZE = 10
+    # ...and at most this many bytes of JSON per request. The Walaa API rejects bigger
+    # bodies (Django's default limit is 2.5 MB, and Cloudflare in front answers HTTP 413).
+    WALAA_PRODUCT_SYNC_MAX_BYTES = 2_000_000
+    # Room kept for the rest of the request (company, page numbers, trigger...).
+    WALAA_PRODUCT_SYNC_ENVELOPE_BYTES = 16_384
+    # Image sizes tried, largest first, when one product alone would not fit in a request.
+    WALAA_PRODUCT_IMAGE_FIELDS = ("image_1920", "image_1024", "image_512", "image_256", "image_128")
 
     walaa_enabled = fields.Boolean(string="Enable Walaa", default=False)
     walaa_brand_token = fields.Char(string="Walaa Brand Token", copy=False)
@@ -68,21 +77,52 @@ class ResCompany(models.Model):
         ]
         return self.env["product.product"].sudo().search(domain, order="id asc")
 
-    def _walaa_build_product_sync_batches(self, trigger_payload=None, batch_size=None):
-        """Yield the full-push payload in pages of ``batch_size`` products.
+    def _walaa_fit_product(self, product, currency_code, budget):
+        """Return ``(image_field, size)``: the largest image size that keeps this product's
+        JSON within ``budget`` bytes, and the resulting size. ``image_field`` is False when
+        even the smallest image does not fit (the product is then sent without image)."""
+        for image_field in self.WALAA_PRODUCT_IMAGE_FIELDS:
+            entry = self._walaa_serialize_product(product, currency_code, image_field)
+            size = len(json.dumps(entry))
+            if size <= budget:
+                return image_field, size
+        entry = self._walaa_serialize_product(product, currency_code, False)
+        return False, len(json.dumps(entry))
+
+    def _walaa_plan_product_sync_pages(self, batch_size, max_bytes):
+        """Group the syncable products into pages of at most ``batch_size`` products and at
+        most ``max_bytes`` of JSON. Returns a list of pages of ``(product, image_field)``."""
+        currency_code = self.currency_id.name
+        budget = max_bytes - self.WALAA_PRODUCT_SYNC_ENVELOPE_BYTES
+        pages, page, page_bytes = [], [], 0
+        for product in self._walaa_syncable_products():
+            image_field, size = self._walaa_fit_product(product, currency_code, budget)
+            size += 2  # ", " between products in the list
+            if page and (len(page) >= batch_size or page_bytes + size > budget):
+                pages.append(page)
+                page, page_bytes = [], 0
+            page.append((product, image_field))
+            page_bytes += size
+        if page or not pages:
+            pages.append(page)
+        return pages
+
+    def _walaa_build_product_sync_batches(self, trigger_payload=None, batch_size=None, max_bytes=None):
+        """Yield the full-push payload in pages small enough for the Walaa API.
 
         Walaa upserts every product it receives, so the catalog can be sent in several
-        requests. Images are serialized one page at a time to keep requests small.
-        An empty catalog still yields one (empty) page.
+        requests. A page holds at most ``batch_size`` products and ``max_bytes`` of JSON;
+        a product whose full-size image alone is too big is sent with a smaller image.
+        Images are serialized one page at a time. An empty catalog still yields one page.
         """
         self.ensure_one()
         trigger_payload = trigger_payload or {}
         batch_size = batch_size or self.WALAA_PRODUCT_SYNC_BATCH_SIZE
-        products = self._walaa_syncable_products()
-        total = len(products)
-        total_pages = max(1, -(-total // batch_size))
-        for page in range(1, total_pages + 1):
-            chunk = products[(page - 1) * batch_size : page * batch_size]
+        max_bytes = max_bytes or self.WALAA_PRODUCT_SYNC_MAX_BYTES
+        plan = self._walaa_plan_product_sync_pages(batch_size, max_bytes)
+        total = sum(len(page) for page in plan)
+        total_pages = len(plan)
+        for page, chunk in enumerate(plan, 1):
             yield {
                 "event": "product_sync",
                 "sync_mode": "full_push",
@@ -96,7 +136,8 @@ class ResCompany(models.Model):
                 "total_pages": total_pages,
                 "page_size": batch_size,
                 "products": [
-                    self._walaa_serialize_product(product, self.currency_id.name) for product in chunk
+                    self._walaa_serialize_product(product, self.currency_id.name, image_field)
+                    for product, image_field in chunk
                 ],
             }
 
@@ -119,7 +160,7 @@ class ResCompany(models.Model):
             ],
         }
 
-    def _walaa_serialize_product(self, product, currency_code):
+    def _walaa_serialize_product(self, product, currency_code, image_field="image_1920"):
         variant_attributes = []
         for value in product.product_template_attribute_value_ids:
             variant_attributes.append(
@@ -129,9 +170,9 @@ class ResCompany(models.Model):
                 }
             )
 
-        image_value = product.image_1920 or product.product_tmpl_id.image_1920
-        if isinstance(image_value, bytes):
-            image_value = image_value.decode("utf-8")
+        # Odoo 18: image fields return the image as base64 bytes. An empty image is falsy.
+        image = image_field and (product[image_field] or product.product_tmpl_id[image_field])
+        image_value = image.decode("utf-8") if isinstance(image, bytes) else (image or False)
 
         return {
             "id": product.id,
